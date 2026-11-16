@@ -63,7 +63,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.R
 import com.example.ui.theme.AsteraAmber
 import com.example.ui.theme.AsteraAmberSoft
 import com.example.ui.theme.AsteraBgBottom
