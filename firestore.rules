@@ -1,0 +1,393 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 13 &&
+             data.phone.matches('^08[0-9]{8,11}$') &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             data.balance is int && data.balance >= 0 &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidUserDirectory(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 13 &&
+             data.phone.matches('^08[0-9]{8,11}$') &&
+             data.searchable is bool && data.searchable == true;
+    }
+
+    function isValidUserSecret(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.pinHash is string && data.pinHash.size() >= 32 && data.pinHash.size() <= 200 &&
+             data.failedAttempts is int && data.failedAttempts >= 0 && data.failedAttempts <= 3 &&
+             data.lockUntilMs is int && data.lockUntilMs >= 0 &&
+             (!('blocked' in data) || data.blocked is bool) &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTransaction(data) {
+      return data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+             data.receiverId is string && data.receiverId.size() >= 1 && data.receiverId.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
+             data.receiverName is string && data.receiverName.size() >= 1 && data.receiverName.size() <= 80 &&
+             data.type is string && (data.type == 'transfer' || data.type == 'topup') &&
+             data.amount is int && data.amount > 0 && data.amount <= 5000000 &&
+             data.note is string && data.note.size() <= 200 &&
+             data.outOfBudget is bool &&
+             (!('dayKey' in data) || (data.dayKey is string && data.dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$'))) &&
+             (!('splitDetail' in data) || (data.splitDetail is list && data.splitDetail.size() <= 10)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidBudget(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.monthlyLimit is int && data.monthlyLimit >= 0 && data.monthlyLimit <= 1000000000 &&
+             data.monthKey is string && data.monthKey.size() == 7 && data.monthKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])$') &&
+             data.spentThisMonth is int && data.spentThisMonth >= 0 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBankAccount(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.bankName is string && data.bankName.size() >= 1 && data.bankName.size() <= 60 &&
+             data.accountNumber is string && data.accountNumber.size() >= 6 && data.accountNumber.size() <= 24 &&
+             data.balance is int && data.balance >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function transactionPath(txId) {
+      return /databases/$(database)/documents/transactions/$(txId);
+    }
+
+    function isUserNotBlocked(uid) {
+      let secretPath = /databases/$(database)/documents/user_secrets/$(uid);
+      let secret = get(secretPath).data;
+      return !exists(secretPath) || !('blocked' in secret) || secret.blocked != true;
+    }
+
+    function isTransferSettlement(txId, tx) {
+      let senderBefore = get(userPath(tx.senderId)).data;
+      let senderAfter = getAfter(userPath(tx.senderId)).data;
+      let receiverBefore = get(userPath(tx.receiverId)).data;
+      let receiverAfter = getAfter(userPath(tx.receiverId)).data;
+      let dailyPath = /databases/$(database)/documents/daily_transfer_limits/$(tx.senderId + '_' + tx.dayKey);
+      let dailyBefore = get(dailyPath).data;
+      let dailyAfter = getAfter(dailyPath).data;
+      let previousDailyAmount = dailyBefore == null ? 0 : dailyBefore.transferredAmount;
+      return tx.type == 'transfer' && tx.senderId != tx.receiverId &&
+             isUserNotBlocked(tx.senderId) && isUserNotBlocked(tx.receiverId) &&
+             tx.amount is int && tx.amount > 0 &&
+             tx.dayKey is string && tx.dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$') &&
+             senderBefore.balance - senderAfter.balance == tx.amount &&
+             receiverAfter.balance - receiverBefore.balance == tx.amount &&
+             senderAfter.lastTransactionId == txId && receiverAfter.lastTransactionId == txId &&
+             dailyAfter.uid == tx.senderId && dailyAfter.dayKey == tx.dayKey &&
+             dailyAfter.transferredAmount - previousDailyAmount == tx.amount &&
+             dailyAfter.transferredAmount <= 5000000 && dailyAfter.lastTransactionId == txId;
+    }
+
+    function isTopUpBankDebit(uid, txId, part) {
+      let path = /databases/$(database)/documents/bank_accounts/$(part.bankId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return part.bankId is string && isValidId(part.bankId) &&
+             part.amount is int && part.amount > 0 &&
+             before.ownerId == uid && before.bankName == part.bankName &&
+             before.balance - after.balance == part.amount &&
+             after.lastTransactionId == txId;
+    }
+
+    function isTopUpSettlement(txId, tx) {
+      let path = userPath(tx.senderId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      let parts = tx.splitDetail;
+      return tx.type == 'topup' && tx.senderId == request.auth.uid &&
+             tx.receiverId == tx.senderId && tx.amount is int &&
+             after.balance - before.balance == tx.amount &&
+             after.lastTransactionId == txId && parts is list &&
+             parts.size() >= 1 && parts.size() <= 2 &&
+             isTopUpBankDebit(tx.senderId, txId, parts[0]) &&
+             ((parts.size() == 1 && parts[0].amount == tx.amount) ||
+              (parts.size() == 2 && parts[1].bankId != parts[0].bankId &&
+               parts[0].amount + parts[1].amount == tx.amount &&
+               isTopUpBankDebit(tx.senderId, txId, parts[1])));
+    }
+
+    function isValidTransferWalletUpdate(userId) {
+      let txId = incoming().lastTransactionId;
+      let path = transactionPath(txId);
+      let tx = getAfter(path).data;
+      return txId is string && isValidId(txId) && existsAfter(path) &&
+             isTransferSettlement(txId, tx) &&
+             ((tx.senderId == userId && request.auth.uid == userId &&
+               existing().balance - incoming().balance == tx.amount) ||
+              (tx.receiverId == userId && tx.senderId == request.auth.uid &&
+               incoming().balance - existing().balance == tx.amount));
+    }
+
+    function isValidTopUpWalletUpdate(userId) {
+      let txId = incoming().lastTransactionId;
+      let path = transactionPath(txId);
+      let tx = getAfter(path).data;
+      return txId is string && isValidId(txId) && existsAfter(path) &&
+             tx.type == 'topup' && tx.senderId == userId && tx.receiverId == userId &&
+             request.auth.uid == userId && isUserNotBlocked(userId) &&
+             incoming().balance - existing().balance == tx.amount &&
+             tx.amount <= 1000000 && isTopUpSettlement(txId, tx);
+    }
+
+    function isValidBankTopUpUpdate(bankId) {
+      let txId = incoming().lastTransactionId;
+      let path = transactionPath(txId);
+      let tx = getAfter(path).data;
+      let amount = existing().balance - incoming().balance;
+      return txId is string && isValidId(txId) && existsAfter(path) &&
+             tx.type == 'topup' && tx.senderId == request.auth.uid &&
+             incoming().ownerId == request.auth.uid && amount > 0 &&
+             incoming().lastTransactionId == txId &&
+             tx.splitDetail.hasAny([{
+               'bankId': bankId,
+               'bankName': existing().bankName,
+               'amount': amount
+             }]);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().balance == 10000000 &&
+                       incoming().keys().hasAll(['uid', 'name', 'phone', 'email', 'balance', 'createdAt']) &&
+                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'email', 'balance', 'photoUrl', 'createdAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().email == existing().email &&
+                       incoming().createdAt == existing().createdAt &&
+                       ((request.auth.uid == userId &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'photoUrl'])) ||
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'lastTransactionId']) &&
+                         (isValidTransferWalletUpdate(userId) || isValidTopUpWalletUpdate(userId))));
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /user_directory/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn() && resource.data.searchable == true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().keys().hasAll(['uid', 'name', 'phone', 'searchable']) &&
+                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'searchable']) &&
+                       isValidUserDirectory(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == existing().uid &&
+                       isValidUserDirectory(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'searchable']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /user_secrets/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().keys().hasAll(['uid', 'pinHash', 'failedAttempts', 'lockUntilMs', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'pinHash', 'failedAttempts', 'lockUntilMs', 'blocked', 'updatedAt']) &&
+                       isValidUserSecret(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == existing().uid &&
+                       isValidUserSecret(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['pinHash', 'failedAttempts', 'lockUntilMs', 'blocked', 'updatedAt']) &&
+                       (!('blocked' in existing()) || existing().blocked != true || incoming().blocked == true);
+
+      allow delete: if false;
+    }
+
+    match /transactions/{transactionId} {
+      allow get: if isSignedIn() &&
+                    isValidId(transactionId) &&
+                    (existing().senderId == request.auth.uid || existing().receiverId == request.auth.uid);
+
+      allow list: if isSignedIn() &&
+                     (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(transactionId) &&
+                       incoming().keys().hasAll(['senderId', 'receiverId', 'senderName', 'receiverName', 'type', 'amount', 'note', 'outOfBudget', 'createdAt']) &&
+                       incoming().keys().hasOnly(['senderId', 'receiverId', 'senderName', 'receiverName', 'type', 'amount', 'note', 'outOfBudget', 'dayKey', 'splitDetail', 'createdAt']) &&
+                       isValidTransaction(incoming()) &&
+                       incoming().senderId == request.auth.uid && (
+                         (incoming().type == 'transfer' &&
+                          incoming().receiverId != request.auth.uid &&
+                          incoming().amount <= 5000000 &&
+                          !('splitDetail' in incoming()) &&
+                          isTransferSettlement(transactionId, incoming())) ||
+                         (incoming().type == 'topup' &&
+                          incoming().receiverId == request.auth.uid &&
+                          incoming().amount <= 1000000 &&
+                          'splitDetail' in incoming() &&
+                          incoming().splitDetail.size() >= 1 &&
+                          isTopUpSettlement(transactionId, incoming()))
+                       );
+
+      allow update, delete: if false;
+    }
+
+    match /budgets/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().keys().hasAll(['uid', 'monthlyLimit', 'monthKey', 'spentThisMonth', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'monthlyLimit', 'monthKey', 'spentThisMonth', 'updatedAt']) &&
+                       isValidBudget(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == existing().uid &&
+                       isValidBudget(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['monthlyLimit', 'monthKey', 'spentThisMonth', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /daily_transfer_limits/{limitId} {
+      allow get: if isSignedIn() && (resource == null || resource.data.uid == request.auth.uid);
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       incoming().uid == request.auth.uid &&
+                       incoming().dayKey is string &&
+                       incoming().dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$') &&
+                       incoming().transferredAmount is int &&
+                       incoming().transferredAmount > 0 &&
+                       incoming().transferredAmount <= 5000000 &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time;
+
+      allow update: if isSignedIn() &&
+                       existing().uid == request.auth.uid &&
+                       incoming().uid == existing().uid &&
+                       incoming().dayKey == existing().dayKey &&
+                       incoming().transferredAmount is int &&
+                       incoming().transferredAmount >= existing().transferredAmount &&
+                       incoming().transferredAmount <= 5000000 &&
+                       incoming().updatedAt is timestamp &&
+                       incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['transferredAmount', 'lastTransactionId', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    match /notification_settings/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if isSignedIn() &&
+                               request.auth.uid == userId &&
+                               incoming().uid == request.auth.uid &&
+                               incoming().keys().hasOnly(['uid', 'transactionAlerts', 'budgetWarnings', 'securityAlerts']) &&
+                               incoming().transactionAlerts is bool &&
+                               incoming().budgetWarnings is bool &&
+                               incoming().securityAlerts is bool;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /fcm_tokens/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if isSignedIn() &&
+                               request.auth.uid == userId &&
+                               incoming().uid == request.auth.uid &&
+                               incoming().token is string &&
+                               incoming().token.size() > 0 &&
+                               incoming().token.size() <= 4096;
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /bank_accounts/{bankId} {
+      allow get: if isSignedIn() && isValidId(bankId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(bankId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().balance == 5000000 &&
+                       ((bankId == request.auth.uid + '_alpha' &&
+                         incoming().bankName == 'Bank Alpha' && incoming().accountNumber == '1001 4821 0901') ||
+                        (bankId == request.auth.uid + '_beta' &&
+                         incoming().bankName == 'Bank Beta' && incoming().accountNumber == '2002 7734 5512')) &&
+                       incoming().keys().hasAll(['ownerId', 'bankName', 'accountNumber', 'balance', 'createdAt']) &&
+                       incoming().keys().hasOnly(['ownerId', 'bankName', 'accountNumber', 'balance', 'createdAt']) &&
+                       isValidBankAccount(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(bankId) &&
+                       existing().ownerId == request.auth.uid &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().bankName == existing().bankName &&
+                       incoming().accountNumber == existing().accountNumber &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidBankAccount(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'lastTransactionId']) &&
+                       isValidBankTopUpUpdate(bankId);
+
+      allow delete: if false;
+    }
+  }
+}

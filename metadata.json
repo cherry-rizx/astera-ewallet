@@ -1,0 +1,6 @@
+{
+  "name": "ASTERA",
+  "description": "ASTERA Digital Banking (Simulasi) — Aplikasi Android perbankan digital simulasi untuk transfer, top up multi-bank, QR, anggaran bulanan, dan riwayat transaksi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

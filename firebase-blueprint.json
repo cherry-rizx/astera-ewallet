@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user wallet profile in ASTERA Digital Banking simulation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full display name of the user."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Indonesian phone number starting with 08 (10 to 13 digits)."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address associated with the user account."
+        },
+        "balance": {
+          "type": "integer",
+          "description": "Current simulated IDR wallet balance (integer, >= 0)."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Optional profile photo URL or local URI string."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["uid", "name", "phone", "email", "balance", "createdAt"]
+    },
+    "UserDirectoryEntry": {
+      "title": "UserDirectoryEntry",
+      "description": "Minimal searchable recipient lookup record for P2P transfer and QR resolution.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Recipient Firebase Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Recipient display name."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Recipient Indonesian phone number."
+        },
+        "searchable": {
+          "type": "boolean",
+          "description": "Must be true for recipient search queries."
+        }
+      },
+      "required": ["uid", "name", "phone", "searchable"]
+    },
+    "UserSecret": {
+      "title": "UserSecret",
+      "description": "Private hashed 6-digit PIN and lockout metadata isolated from public profiles.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "pinHash": {
+          "type": "string",
+          "description": "Salted SHA-256 hash of the user's 6-digit transaction PIN."
+        },
+        "failedAttempts": {
+          "type": "integer",
+          "description": "Consecutive wrong PIN attempts (0..3)."
+        },
+        "lockUntilMs": {
+          "type": "integer",
+          "description": "Epoch milliseconds until transfer PIN lock expires (0 if unlocked)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["uid", "pinHash", "failedAttempts", "lockUntilMs", "updatedAt"]
+    },
+    "TransactionRecord": {
+      "title": "TransactionRecord",
+      "description": "Immutable simulated transfer or multi-bank top up transaction.",
+      "type": "object",
+      "properties": {
+        "senderId": {
+          "type": "string",
+          "description": "UID of the initiating user."
+        },
+        "receiverId": {
+          "type": "string",
+          "description": "UID of the recipient user (or same as senderId for topup)."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Display name of sender."
+        },
+        "receiverName": {
+          "type": "string",
+          "description": "Display name of receiver."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["transfer", "topup"],
+          "description": "Transaction category."
+        },
+        "amount": {
+          "type": "integer",
+          "description": "Integer IDR amount (> 0)."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional transfer note."
+        },
+        "outOfBudget": {
+          "type": "boolean",
+          "description": "True if transaction exceeded remaining monthly budget."
+        },
+        "splitDetail": {
+          "type": "array",
+          "description": "Multi-bank debit breakdown for topup transactions."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "senderId",
+        "receiverId",
+        "senderName",
+        "receiverName",
+        "type",
+        "amount",
+        "note",
+        "outOfBudget",
+        "createdAt"
+      ]
+    },
+    "MonthlyBudget": {
+      "title": "MonthlyBudget",
+      "description": "Per-user monthly spending budget limit and spent counter.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "monthlyLimit": {
+          "type": "integer",
+          "description": "Monthly spending cap in integer IDR."
+        },
+        "monthKey": {
+          "type": "string",
+          "description": "Current tracking month in YYYY-MM format."
+        },
+        "spentThisMonth": {
+          "type": "integer",
+          "description": "Accumulated spending for monthKey in integer IDR."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["uid", "monthlyLimit", "monthKey", "spentThisMonth", "updatedAt"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "description": "Simulated linked bank account used as funding source for Multi-Bank Split top up.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "bankName": {
+          "type": "string",
+          "description": "Bank display name (e.g., Bank Alpha, Bank Beta)."
+        },
+        "accountNumber": {
+          "type": "string",
+          "description": "Dummy bank account number."
+        },
+        "balance": {
+          "type": "integer",
+          "description": "Current simulated bank balance in integer IDR (>= 0)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["ownerId", "bankName", "accountNumber", "balance", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User wallet profile keyed by Firebase Auth UID."
+    },
+    "/user_directory/{userId}": {
+      "schema": { "$ref": "#/entities/UserDirectoryEntry" },
+      "description": "Recipient lookup directory for P2P transfers and QR resolution."
+    },
+    "/user_secrets/{userId}": {
+      "schema": { "$ref": "#/entities/UserSecret" },
+      "description": "Owner-only hashed PIN and lockout state."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/TransactionRecord" },
+      "description": "Immutable simulated transfer and top up transaction records."
+    },
+    "/budgets/{userId}": {
+      "schema": { "$ref": "#/entities/MonthlyBudget" },
+      "description": "User monthly spending budget document keyed by UID."
+    },
+    "/bank_accounts/{bankId}": {
+      "schema": { "$ref": "#/entities/BankAccount" },
+      "description": "Simulated external bank accounts owned by the user."
+    }
+  }
+}
