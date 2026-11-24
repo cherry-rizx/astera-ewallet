@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">ASTERA</string>
+    <string name="nfc_service_description">ASTERA - terima transfer via NFC</string>
+    <string name="nfc_aid_group_description">ID Dompet ASTERA</string>
 </resources>
