@@ -15,6 +15,15 @@ Saldo dan transaksi di aplikasi ini hanya untuk simulasi.
    Storage di Firebase Console.
 5. Sync Gradle, lalu jalankan konfigurasi `app` di emulator atau perangkat.
 
+Untuk dipasang atau didemokan di HP, pakai build `demo` (tidak debuggable, jadi
+jauh lebih lancar daripada build debug). Build ini ditandatangani dengan
+`debug.keystore`, sehingga bisa menimpa versi debug tanpa uninstall:
+
+```bash
+gradle assembleDemo
+adb install -r app/build/outputs/apk/demo/app-demo.apk
+```
+
 Petunjuk Firebase CLI, Rules, Storage, dan Cloud Functions ada di
 [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
 

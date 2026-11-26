@@ -7,6 +7,7 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -62,8 +63,12 @@ fun CameraQrScanner(
     val cam = camera ?: return@LaunchedEffect
     if (cam.cameraInfo.hasFlashUnit()) cam.cameraControl.enableTorch(torchEnabled)
   }
+  // Use case yang sedang terikat, supaya kamera bisa dilepas begitu komponen ini hilang
+  // (misalnya pindah dari tab Scan ke Manual) tanpa menunggu layar ditutup.
+  var boundUseCases by remember { mutableStateOf<Pair<ProcessCameraProvider, Array<UseCase>>?>(null) }
   DisposableEffect(Unit) {
     onDispose {
+      boundUseCases?.let { (provider, useCases) -> runCatching { provider.unbind(*useCases) } }
       cameraExecutor.shutdown()
       scanner.close()
     }
@@ -110,6 +115,7 @@ fun CameraQrScanner(
             cameraProvider.unbindAll()
             val boundCamera =
               cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+            boundUseCases = cameraProvider to arrayOf(preview, analysis)
             camera = boundCamera
             currentOnTorchAvailable(boundCamera.cameraInfo.hasFlashUnit())
           } catch (_: Exception) {

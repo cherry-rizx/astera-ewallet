@@ -54,6 +54,8 @@ import com.astera.wallet.ui.theme.AsteraFieldBg
 import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.formatAccountNumber
+import com.astera.wallet.util.RupiahVisualTransformation
+import com.astera.wallet.util.sanitizeAmountInput
 
 /**
  * Form tab "Ke Rekening Bank" / "Ke E-Wallet" sesuai desain 06 & 07: nomor tujuan, pilihan
@@ -122,7 +124,7 @@ internal fun ExternalTransferForm(
     AsteraTextField(
       value = amountText,
       onValueChange = { input ->
-        amountText = input.filter { it.isDigit() }.take(9)
+        amountText = sanitizeAmountInput(input, 9)
         amountError = null
       },
       label = "Nominal",
@@ -131,6 +133,7 @@ internal fun ExternalTransferForm(
       helperText = "Maksimal Rp 5.000.000 per transaksi dan per hari",
       errorText = amountError,
       keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+      visualTransformation = RupiahVisualTransformation,
       modifier = Modifier.testTag("external_amount_input"),
     )
 

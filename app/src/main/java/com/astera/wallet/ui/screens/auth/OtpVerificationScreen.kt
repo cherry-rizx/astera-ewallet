@@ -2,11 +2,12 @@ package com.astera.wallet.ui.screens.auth
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,13 +25,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -42,6 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,9 +58,8 @@ import com.astera.wallet.ui.components.AsteraLogoBadge
 import com.astera.wallet.ui.components.AsteraTopBar
 import com.astera.wallet.ui.components.CodeBoxes
 import com.astera.wallet.ui.components.NumericKeypad
-import com.astera.wallet.ui.components.SimulasiBadge
+import com.astera.wallet.ui.theme.AsteraAmber
 import com.astera.wallet.ui.theme.AsteraCard
-import com.astera.wallet.ui.theme.AsteraCardBorder
 import com.astera.wallet.ui.theme.AsteraRed
 import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.ui.theme.AsteraTextSecondary
@@ -63,8 +67,8 @@ import com.astera.wallet.viewmodel.OtpChallenge
 import kotlinx.coroutines.delay
 
 /**
- * Verifikasi dua langkah setelah login email/kata sandi. Kode OTP adalah simulasi: dikirim
- * sebagai notifikasi lokal dan ditampilkan di kartu "SMS Simulasi".
+ * Verifikasi dua langkah setelah login email/kata sandi. Kode OTP (simulasi) dikirim hanya lewat
+ * notifikasi lokal dan tidak pernah ditampilkan di layar.
  */
 @Composable
 fun OtpVerificationScreen(
@@ -72,23 +76,44 @@ fun OtpVerificationScreen(
   challenge: OtpChallenge?,
   errorMessage: String?,
   onSubmit: (String) -> Unit,
-  onResend: () -> Unit,
+  onResend: (force: Boolean) -> Unit,
   onCancel: () -> Unit,
 ) {
   val context = LocalContext.current
+  val lifecycleOwner = LocalLifecycleOwner.current
   var code by rememberSaveable { mutableStateOf("") }
-  var showSimulatedSms by rememberSaveable { mutableStateOf(true) }
   var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-  val notificationPermission =
-    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-  LaunchedEffect(Unit) {
-    if (Build.VERSION.SDK_INT >= 33 &&
-      ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+  fun hasNotificationPermission(): Boolean =
+    Build.VERSION.SDK_INT < 33 ||
+      ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
       PackageManager.PERMISSION_GRANTED
-    ) {
+
+  var notificationAllowed by remember { mutableStateOf(hasNotificationPermission()) }
+
+  // Kode pertama bisa dibuat sebelum izin diberikan; kirim ulang begitu izin didapat.
+  val notificationPermission =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      notificationAllowed = granted
+      if (granted) onResend(true)
+    }
+  LaunchedEffect(Unit) {
+    if (!notificationAllowed && Build.VERSION.SDK_INT >= 33) {
       notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
+  }
+  // Kembali dari Pengaturan: jika izin baru diaktifkan dan kode sebelumnya gagal terkirim, kirim ulang.
+  DisposableEffect(lifecycleOwner, challenge?.notificationShown) {
+    val observer =
+      LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_RESUME) {
+          val allowed = hasNotificationPermission()
+          if (allowed && !notificationAllowed && challenge?.notificationShown == false) onResend(true)
+          notificationAllowed = allowed
+        }
+      }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
   }
   LaunchedEffect(Unit) {
     while (true) {
@@ -127,15 +152,23 @@ fun OtpVerificationScreen(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-          text = "Masukkan 6 digit kode OTP yang dikirim untuk akun $email",
+          text = "Kode OTP telah dikirim lewat notifikasi. Masukkan 6 digit kode untuk akun $email",
           style = MaterialTheme.typography.bodyMedium,
           color = AsteraTextSecondary,
           textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(18.dp))
 
-        if (challenge != null && showSimulatedSms) {
-          SimulatedSmsCard(code = challenge.code, onHide = { showSimulatedSms = false })
+        if (!notificationAllowed || challenge?.notificationShown == false) {
+          NotificationPermissionCard(
+            onOpenSettings = {
+              val intent =
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                  .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              runCatching { context.startActivity(intent) }
+            },
+          )
           Spacer(Modifier.height(18.dp))
         }
 
@@ -174,10 +207,7 @@ fun OtpVerificationScreen(
             color = AsteraTextSecondary,
           )
           TextButton(
-            onClick = {
-              showSimulatedSms = true
-              onResend()
-            },
+            onClick = { onResend(false) },
             enabled = resendRemainingSec == 0L,
             modifier = Modifier.testTag("otp_resend_button"),
           ) {
@@ -197,35 +227,32 @@ fun OtpVerificationScreen(
   }
 }
 
-/** Pengganti SMS sungguhan: kode OTP ditampilkan di sini karena aplikasi ini simulasi. */
+/** Muncul jika izin notifikasi belum diberikan, karena kode OTP hanya dikirim lewat notifikasi. */
 @Composable
-private fun SimulatedSmsCard(code: String, onHide: () -> Unit) {
+private fun NotificationPermissionCard(onOpenSettings: () -> Unit) {
   Surface(
     shape = RoundedCornerShape(16.dp),
     color = AsteraCard,
-    border = BorderStroke(1.dp, AsteraCardBorder.copy(alpha = 0.6f)),
-    modifier = Modifier.fillMaxWidth().testTag("otp_simulated_sms"),
+    border = BorderStroke(1.dp, AsteraAmber.copy(alpha = 0.6f)),
+    modifier = Modifier.fillMaxWidth().testTag("otp_notification_permission"),
   ) {
     Column(modifier = Modifier.padding(14.dp)) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Sms, contentDescription = null, tint = AsteraSkyBlue, modifier = Modifier.size(18.dp))
+        Icon(
+          Icons.Outlined.NotificationsOff,
+          contentDescription = null,
+          tint = AsteraAmber,
+          modifier = Modifier.size(18.dp),
+        )
         Spacer(Modifier.width(8.dp))
         Text(
-          text = "SMS ASTERA",
-          style = MaterialTheme.typography.labelLarge,
+          text = "Izinkan notifikasi untuk menerima kode OTP",
+          style = MaterialTheme.typography.bodyMedium,
           color = Color.White,
-          modifier = Modifier.weight(1f),
         )
-        SimulasiBadge()
       }
-      Spacer(Modifier.height(8.dp))
-      Text(
-        text = "Kode OTP kamu: $code. Berlaku 5 menit. Jangan bagikan kode ini kepada siapa pun.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = Color.White,
-      )
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        TextButton(onClick = onHide) { Text("Sembunyikan", color = AsteraTextSecondary) }
+      TextButton(onClick = onOpenSettings) {
+        Text("Buka pengaturan notifikasi", color = AsteraSkyBlue, fontWeight = FontWeight.Bold)
       }
     }
   }

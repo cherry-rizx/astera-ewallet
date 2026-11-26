@@ -81,6 +81,8 @@ import com.astera.wallet.viewmodel.UiState
 import com.astera.wallet.model.DestinationType
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.astera.wallet.util.formatAccountNumber
+import com.astera.wallet.util.RupiahVisualTransformation
+import com.astera.wallet.util.sanitizeAmountInput
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -340,7 +342,7 @@ fun TransferScreen(
           AsteraTextField(
             value = amountText,
             onValueChange = { input ->
-              amountText = input.filter { it.isDigit() }.take(9)
+              amountText = sanitizeAmountInput(input, 9)
               amountError = null
             },
             label = "Nominal",
@@ -355,6 +357,7 @@ fun TransferScreen(
             helperText = "Maksimal Rp 5.000.000 per transaksi dan per hari",
             errorText = amountError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            visualTransformation = RupiahVisualTransformation,
             modifier = Modifier.testTag("transfer_amount_input"),
           )
 

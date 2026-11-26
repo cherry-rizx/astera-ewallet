@@ -74,7 +74,7 @@ fun AsteraApp() {
         challenge = otpChallenge,
         errorMessage = otpError,
         onSubmit = { code -> authViewModel.verifyOtp(code) },
-        onResend = { authViewModel.resendOtp() },
+        onResend = { force -> authViewModel.resendOtp(force) },
         onCancel = { authViewModel.signOut() },
       )
     }

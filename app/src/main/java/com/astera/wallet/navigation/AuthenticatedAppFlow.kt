@@ -9,8 +9,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -234,7 +238,8 @@ internal fun AuthenticatedAppFlow(
     }
   }
 
-  val profile = (profileState as? UiState.Success)?.data
+  // Dibaca di dalam tiap layar (bukan di sini) supaya perubahan saldo tidak me-recompose seluruh flow.
+  fun currentProfile() = (profileState as? UiState.Success)?.data
 
   AsteraBackground {
     Scaffold(
@@ -256,11 +261,18 @@ internal fun AuthenticatedAppFlow(
           Modifier
             .fillMaxSize()
             .padding(innerPadding)
+            // Inset (termasuk keyboard) sudah dipakai Scaffold; jangan dihitung lagi oleh layar anak.
+            .consumeWindowInsets(innerPadding)
             .padding(bottom = if (showBottomBar) 24.dp else 0.dp)
       ) {
         NavHost(
           navController = navController,
           startDestination = AsteraRoutes.BERANDA,
+          // Bawaan Navigation adalah crossfade 700 ms yang terasa lambat; dipersingkat.
+          enterTransition = { fadeIn(tween(180)) },
+          exitTransition = { fadeOut(tween(120)) },
+          popEnterTransition = { fadeIn(tween(180)) },
+          popExitTransition = { fadeOut(tween(120)) },
         ) {
           composable(AsteraRoutes.BERANDA) {
             HomeScreen(
@@ -312,9 +324,9 @@ internal fun AuthenticatedAppFlow(
           composable(AsteraRoutes.TRANSFER_MANUAL) {
             TransferScreen(
               currentUserId = currentUserId,
-              currentUserName = profile?.name ?: "Nasabah ASTERA",
-              currentUserAccountNumber = profile?.accountNumber.orEmpty(),
-              currentBalance = profile?.balance ?: 0L,
+              currentUserName = currentProfile()?.name ?: "Nasabah ASTERA",
+              currentUserAccountNumber = currentProfile()?.accountNumber.orEmpty(),
+              currentBalance = currentProfile()?.balance ?: 0L,
               initialStartWithQr = false,
               searchResults = searchResults,
               selectedRecipient = selectedRecipient,
@@ -336,7 +348,7 @@ internal fun AuthenticatedAppFlow(
           composable(AsteraRoutes.QRIS) {
             QrisScreen(
               currentUserId = currentUserId,
-              profile = profile,
+              profile = currentProfile(),
               onQrUidScanned = { uid, ok, err -> viewModel.selectRecipientByQrUid(uid, ok, err) },
               // launchSingleTop: scan/NFC bisa terpicu dua kali cepat, jangan tumpuk dua layar Transfer.
               onRecipientReady = { navController.navigate(AsteraRoutes.TRANSFER_MANUAL) { launchSingleTop = true } },

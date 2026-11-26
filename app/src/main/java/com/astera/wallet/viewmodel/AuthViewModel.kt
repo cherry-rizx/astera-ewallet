@@ -34,7 +34,7 @@ sealed interface AuthGateState {
 }
 
 /** Kode OTP simulasi yang sedang aktif, ditampilkan di kartu "SMS Simulasi". */
-data class OtpChallenge(val code: String, val issuedAtMs: Long)
+data class OtpChallenge(val issuedAtMs: Long, val notificationShown: Boolean)
 
 class AuthViewModel(
   private val authService: AuthService,
@@ -197,17 +197,18 @@ class AuthViewModel(
     }
   }
 
-  fun resendOtp() {
+  /** @param force lewati jeda kirim ulang, misalnya tepat setelah izin notifikasi diberikan. */
+  fun resendOtp(force: Boolean = false) {
     if (_gateState.value !is AuthGateState.NeedsOtp) return
     val elapsed = System.currentTimeMillis() - otpService.lastIssuedAtMs()
-    if (elapsed < OtpService.RESEND_COOLDOWN_MS) return
+    if (!force && elapsed < OtpService.RESEND_COOLDOWN_MS) return
     _otpError.value = null
     issueOtp()
   }
 
   private fun issueOtp() {
     val now = System.currentTimeMillis()
-    _otpChallenge.value = OtpChallenge(code = otpService.issueCode(now), issuedAtMs = now)
+    _otpChallenge.value = OtpChallenge(issuedAtMs = now, notificationShown = otpService.issueCode(now))
   }
 
   fun signOut() {

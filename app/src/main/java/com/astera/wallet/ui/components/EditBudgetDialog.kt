@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.astera.wallet.ui.theme.AsteraAmber
 import com.astera.wallet.ui.theme.AsteraCard
 import com.astera.wallet.ui.theme.AsteraTextSecondary
+import com.astera.wallet.util.RupiahVisualTransformation
+import com.astera.wallet.util.sanitizeAmountInput
 
 @Composable
 fun EditBudgetDialog(
@@ -48,7 +50,7 @@ fun EditBudgetDialog(
         AsteraTextField(
           value = limitText,
           onValueChange = { input ->
-            limitText = input.filter { it.isDigit() }.take(10)
+            limitText = sanitizeAmountInput(input, 10)
             errorText = null
           },
           label = "Batas Bulanan (Rp)",
@@ -56,6 +58,7 @@ fun EditBudgetDialog(
           prefix = { Text("Rp ", color = AsteraAmber) },
           errorText = errorText,
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+          visualTransformation = RupiahVisualTransformation,
         )
       }
     },

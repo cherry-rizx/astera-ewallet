@@ -55,6 +55,13 @@ android {
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
+    // Build untuk dipasang/didemokan di HP: tidak debuggable (jauh lebih lancar daripada debug),
+    // tapi ditandatangani debug.keystore sehingga bisa menimpa versi debug tanpa uninstall.
+    create("demo") {
+      initWith(getByName("release"))
+      signingConfig = signingConfigs.getByName("debugConfig")
+      matchingFallbacks += "release"
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

@@ -19,7 +19,7 @@ sealed interface OtpVerifyResult {
  * Verifikasi dua langkah (2FA) dengan OTP simulasi.
  *
  * Tidak ada SMS sungguhan: kode 6 digit dibuat di perangkat, disimpan dalam bentuk hash, lalu
- * "dikirim" sebagai notifikasi lokal dan kartu SMS simulasi di layar OTP. Status "menunggu OTP"
+ * dikirim hanya lewat notifikasi lokal. Status "menunggu OTP"
  * disimpan di SharedPreferences supaya tetap diminta walau aplikasi ditutup sebelum verifikasi.
  */
 class OtpService(private val appContext: Context) {
@@ -38,8 +38,12 @@ class OtpService(private val appContext: Context) {
 
   fun lastIssuedAtMs(): Long = prefs.getLong(KEY_ISSUED_AT, 0L)
 
-  /** Membuat kode baru, menyimpan hash-nya, dan menampilkan notifikasi simulasi. */
-  fun issueCode(nowMs: Long = System.currentTimeMillis()): String {
+  /**
+   * Membuat kode baru, menyimpan hash-nya, lalu mengirimnya lewat notifikasi lokal.
+   *
+   * @return true jika notifikasi berhasil tampil (izin notifikasi diberikan).
+   */
+  fun issueCode(nowMs: Long = System.currentTimeMillis()): Boolean {
     val code = (random.nextInt(900_000) + 100_000).toString()
     prefs
       .edit()
@@ -48,13 +52,12 @@ class OtpService(private val appContext: Context) {
       .putLong(KEY_EXPIRES_AT, nowMs + CODE_VALIDITY_MS)
       .putInt(KEY_ATTEMPTS, 0)
       .apply()
-    LocalNotifier.showSecurityNotification(
+    return LocalNotifier.showSecurityNotification(
       appContext,
       NOTIFICATION_ID,
-      "Kode OTP ASTERA (simulasi)",
-      "Kode OTP kamu: $code. Berlaku 5 menit. Jangan bagikan kode ini kepada siapa pun.",
+      "ASTERA",
+      "$code berikut kode OTP anda",
     )
-    return code
   }
 
   fun verify(code: String, nowMs: Long = System.currentTimeMillis()): OtpVerifyResult {
