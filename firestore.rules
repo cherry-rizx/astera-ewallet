@@ -31,6 +31,7 @@ service cloud.firestore {
              data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
              data.balance is int && data.balance >= 0 &&
              (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+             (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.matches('^[1-9][0-9]{11}$'))) &&
              data.createdAt is timestamp && data.createdAt <= request.time;
     }
 
@@ -39,6 +40,7 @@ service cloud.firestore {
              data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
              data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 13 &&
              data.phone.matches('^08[0-9]{8,11}$') &&
+             (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.matches('^[1-9][0-9]{11}$'))) &&
              data.searchable is bool && data.searchable == true;
     }
 
@@ -56,13 +58,20 @@ service cloud.firestore {
              data.receiverId is string && data.receiverId.size() >= 1 && data.receiverId.size() <= 128 &&
              data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
              data.receiverName is string && data.receiverName.size() >= 1 && data.receiverName.size() <= 80 &&
-             data.type is string && (data.type == 'transfer' || data.type == 'topup') &&
+             data.type is string && (data.type == 'transfer' || data.type == 'topup' || data.type == 'external_transfer') &&
              data.amount is int && data.amount > 0 && data.amount <= 5000000 &&
              data.note is string && data.note.size() <= 200 &&
              data.outOfBudget is bool &&
              (!('dayKey' in data) || (data.dayKey is string && data.dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$'))) &&
              (!('splitDetail' in data) || (data.splitDetail is list && data.splitDetail.size() <= 10)) &&
              data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // Tujuan transfer keluar (simulasi) ke rekening bank / e-wallet lain.
+    function isValidExternalDestination(data) {
+      return data.destinationType is string && (data.destinationType == 'bank' || data.destinationType == 'ewallet') &&
+             data.destinationProvider is string && data.destinationProvider.size() >= 2 && data.destinationProvider.size() <= 40 &&
+             data.destinationAccount is string && data.destinationAccount.matches('^[0-9]{6,20}$');
     }
 
     function isValidBudget(data) {
@@ -91,8 +100,10 @@ service cloud.firestore {
 
     function isUserNotBlocked(uid) {
       let secretPath = /databases/$(database)/documents/user_secrets/$(uid);
-      let secret = get(secretPath).data;
-      return !exists(secretPath) || !('blocked' in secret) || secret.blocked != true;
+      // exists() dicek lebih dulu: get() pada dokumen yang tidak ada tidak punya .data.
+      return !exists(secretPath) ||
+             !('blocked' in get(secretPath).data) ||
+             get(secretPath).data.blocked != true;
     }
 
     function isTransferSettlement(txId, tx) {
@@ -100,20 +111,47 @@ service cloud.firestore {
       let senderAfter = getAfter(userPath(tx.senderId)).data;
       let receiverBefore = get(userPath(tx.receiverId)).data;
       let receiverAfter = getAfter(userPath(tx.receiverId)).data;
-      let dailyPath = /databases/$(database)/documents/daily_transfer_limits/$(tx.senderId + '_' + tx.dayKey);
-      let dailyBefore = get(dailyPath).data;
-      let dailyAfter = getAfter(dailyPath).data;
-      let previousDailyAmount = dailyBefore == null ? 0 : dailyBefore.transferredAmount;
       return tx.type == 'transfer' && tx.senderId != tx.receiverId &&
              isUserNotBlocked(tx.senderId) && isUserNotBlocked(tx.receiverId) &&
              tx.amount is int && tx.amount > 0 &&
-             tx.dayKey is string && tx.dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$') &&
              senderBefore.balance - senderAfter.balance == tx.amount &&
              receiverAfter.balance - receiverBefore.balance == tx.amount &&
              senderAfter.lastTransactionId == txId && receiverAfter.lastTransactionId == txId &&
+             isDailyLimitSettlement(txId, tx);
+    }
+
+    // Batas harian Rp 5.000.000 berlaku untuk transfer ASTERA dan transfer keluar.
+    function isDailyLimitSettlement(txId, tx) {
+      let dailyPath = /databases/$(database)/documents/daily_transfer_limits/$(tx.senderId + '_' + tx.dayKey);
+      let dailyAfter = getAfter(dailyPath).data;
+      let previousDailyAmount = exists(dailyPath) ? get(dailyPath).data.transferredAmount : 0;
+      return tx.dayKey is string && tx.dayKey.matches('^20[0-9]{2}-(0[1-9]|1[0-2])-[0-3][0-9]$') &&
              dailyAfter.uid == tx.senderId && dailyAfter.dayKey == tx.dayKey &&
              dailyAfter.transferredAmount - previousDailyAmount == tx.amount &&
              dailyAfter.transferredAmount <= 5000000 && dailyAfter.lastTransactionId == txId;
+    }
+
+    // Transfer keluar: hanya saldo pengirim yang berkurang (tidak ada akun ASTERA penerima).
+    function isExternalTransferSettlement(txId, tx) {
+      let senderBefore = get(userPath(tx.senderId)).data;
+      let senderAfter = getAfter(userPath(tx.senderId)).data;
+      return tx.type == 'external_transfer' && tx.receiverId == 'external' &&
+             isUserNotBlocked(tx.senderId) &&
+             tx.amount is int && tx.amount > 0 && tx.amount <= 5000000 &&
+             senderBefore.balance - senderAfter.balance == tx.amount &&
+             senderAfter.lastTransactionId == txId &&
+             isDailyLimitSettlement(txId, tx);
+    }
+
+    function isValidExternalWalletUpdate(userId) {
+      let txId = incoming().lastTransactionId;
+      let path = transactionPath(txId);
+      let tx = getAfter(path).data;
+      return txId is string && isValidId(txId) && existsAfter(path) &&
+             tx.type == 'external_transfer' &&
+             tx.senderId == userId && request.auth.uid == userId &&
+             existing().balance - incoming().balance == tx.amount &&
+             isExternalTransferSettlement(txId, tx);
     }
 
     function isTopUpBankDebit(uid, txId, part) {
@@ -149,6 +187,7 @@ service cloud.firestore {
       let path = transactionPath(txId);
       let tx = getAfter(path).data;
       return txId is string && isValidId(txId) && existsAfter(path) &&
+             tx.type == 'transfer' &&
              isTransferSettlement(txId, tx) &&
              ((tx.senderId == userId && request.auth.uid == userId &&
                existing().balance - incoming().balance == tx.amount) ||
@@ -193,7 +232,7 @@ service cloud.firestore {
                        incoming().uid == request.auth.uid &&
                        incoming().balance == 10000000 &&
                        incoming().keys().hasAll(['uid', 'name', 'phone', 'email', 'balance', 'createdAt']) &&
-                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'email', 'balance', 'photoUrl', 'createdAt']) &&
+                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'email', 'accountNumber', 'balance', 'photoUrl', 'createdAt']) &&
                        isValidUserProfile(incoming());
 
       allow update: if isSignedIn() &&
@@ -202,10 +241,13 @@ service cloud.firestore {
                        incoming().uid == existing().uid &&
                        incoming().email == existing().email &&
                        incoming().createdAt == existing().createdAt &&
+                       // Nomor rekening hanya boleh diisi sekali, tidak bisa diganti.
+                       (!('accountNumber' in existing()) || incoming().accountNumber == existing().accountNumber) &&
                        ((request.auth.uid == userId &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'photoUrl'])) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'photoUrl', 'accountNumber'])) ||
                         (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'lastTransactionId']) &&
-                         (isValidTransferWalletUpdate(userId) || isValidTopUpWalletUpdate(userId))));
+                         (isValidTransferWalletUpdate(userId) || isValidTopUpWalletUpdate(userId) ||
+                          isValidExternalWalletUpdate(userId))));
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
@@ -219,7 +261,7 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().uid == request.auth.uid &&
                        incoming().keys().hasAll(['uid', 'name', 'phone', 'searchable']) &&
-                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'searchable']) &&
+                       incoming().keys().hasOnly(['uid', 'name', 'phone', 'accountNumber', 'searchable']) &&
                        isValidUserDirectory(incoming());
 
       allow update: if isSignedIn() &&
@@ -227,7 +269,8 @@ service cloud.firestore {
                        request.auth.uid == userId &&
                        incoming().uid == existing().uid &&
                        isValidUserDirectory(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'searchable']);
+                       (!('accountNumber' in existing()) || incoming().accountNumber == existing().accountNumber) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'accountNumber', 'searchable']);
 
       allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
     }
@@ -266,7 +309,7 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
                        isValidId(transactionId) &&
                        incoming().keys().hasAll(['senderId', 'receiverId', 'senderName', 'receiverName', 'type', 'amount', 'note', 'outOfBudget', 'createdAt']) &&
-                       incoming().keys().hasOnly(['senderId', 'receiverId', 'senderName', 'receiverName', 'type', 'amount', 'note', 'outOfBudget', 'dayKey', 'splitDetail', 'createdAt']) &&
+                       incoming().keys().hasOnly(['senderId', 'receiverId', 'senderName', 'receiverName', 'type', 'amount', 'note', 'outOfBudget', 'dayKey', 'splitDetail', 'destinationType', 'destinationProvider', 'destinationAccount', 'createdAt']) &&
                        isValidTransaction(incoming()) &&
                        incoming().senderId == request.auth.uid && (
                          (incoming().type == 'transfer' &&
@@ -279,7 +322,13 @@ service cloud.firestore {
                           incoming().amount <= 1000000 &&
                           'splitDetail' in incoming() &&
                           incoming().splitDetail.size() >= 1 &&
-                          isTopUpSettlement(transactionId, incoming()))
+                          isTopUpSettlement(transactionId, incoming())) ||
+                         (incoming().type == 'external_transfer' &&
+                          incoming().receiverId == 'external' &&
+                          incoming().amount <= 5000000 &&
+                          !('splitDetail' in incoming()) &&
+                          isValidExternalDestination(incoming()) &&
+                          isExternalTransferSettlement(transactionId, incoming()))
                        );
 
       allow update, delete: if false;

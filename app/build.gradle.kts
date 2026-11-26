@@ -55,6 +55,13 @@ android {
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
+    // Build untuk dipasang/didemokan di HP: tidak debuggable (jauh lebih lancar daripada debug),
+    // tapi ditandatangani debug.keystore sehingga bisa menimpa versi debug tanpa uninstall.
+    create("demo") {
+      initWith(getByName("release"))
+      signingConfig = signingConfigs.getByName("debugConfig")
+      matchingFallbacks += "release"
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -114,9 +121,6 @@ dependencies {
   implementation(libs.firebase.auth)
   implementation("com.google.firebase:firebase-storage")
   implementation("com.google.firebase:firebase-messaging")
-  implementation(libs.androidx.credentials)
-  implementation(libs.androidx.credentials.play.services)
-  implementation(libs.googleid)
   // implementation(libs.firebase.appcheck.recaptcha)
   // implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)

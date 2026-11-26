@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AID ASTERA untuk berbagi penerima transfer lewat NFC (Host Card Emulation). -->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/nfc_service_description"
+    android:requireDeviceUnlock="true">
+    <aid-group
+        android:category="other"
+        android:description="@string/nfc_aid_group_description">
+        <aid-filter android:name="F0415354455241" />
+    </aid-group>
+</host-apdu-service>

@@ -19,7 +19,7 @@ di Firebase Console.
 ## Deploy rules dan Cloud Functions
 
 Setelah Firebase Console siap dan Firebase CLI sudah login, jalankan dari
-folder `coding/astera`:
+folder `aplikasi-android`:
 
 ```sh
 firebase deploy --only firestore:rules,storage --project astera-3d3b0
