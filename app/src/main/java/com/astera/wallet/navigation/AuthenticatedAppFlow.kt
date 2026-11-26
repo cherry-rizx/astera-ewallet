@@ -72,6 +72,7 @@ import kotlinx.coroutines.tasks.await
 @Composable
 internal fun AuthenticatedAppFlow(
   currentUserId: String,
+  skipAppUnlock: Boolean,
   onSignOut: () -> Unit,
 ) {
   val context = LocalContext.current
@@ -139,7 +140,8 @@ internal fun AuthenticatedAppFlow(
   val notificationFeed by viewModel.notificationFeed.collectAsStateWithLifecycle()
   val unreadNotificationCount by viewModel.unreadNotificationCount.collectAsStateWithLifecycle()
 
-  var appUnlocked by remember(currentUserId) { mutableStateOf(false) }
+  // Baru login/daftar -> langsung masuk. Sesi lama yang dipulihkan -> minta PIN/biometrik.
+  var appUnlocked by remember(currentUserId) { mutableStateOf(skipAppUnlock) }
   var unlockError by remember(currentUserId) { mutableStateOf<String?>(null) }
   val hostActivity = context as? FragmentActivity
   val biometricManager = remember(context) { BiometricManager.from(context) }
@@ -156,7 +158,12 @@ internal fun AuthenticatedAppFlow(
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-              if (errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) unlockError = errString.toString()
+              // Dibatalkan / pilih "Gunakan PIN" bukan error: keypad PIN sudah tampil di belakangnya.
+              val dismissed =
+                errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
+                  errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
+                  errorCode == BiometricPrompt.ERROR_CANCELED
+              if (!dismissed) unlockError = errString.toString()
             }
           },
         )
@@ -166,15 +173,17 @@ internal fun AuthenticatedAppFlow(
     remember {
       BiometricPrompt.PromptInfo.Builder()
         .setTitle("Buka ASTERA")
-        .setSubtitle("Verifikasi biometrik atau lanjutkan dengan PIN transaksi")
+        .setSubtitle("Tempelkan sidik jari untuk masuk")
         .setNegativeButtonText("Gunakan PIN")
         .build()
     }
 
-  LaunchedEffect(currentUserId, userSecret?.uid, biometricPrompt) {
-    if (userSecret != null && userSecret?.blocked != true && !appUnlocked && biometricPrompt != null &&
+  val biometricAvailable =
+    biometricPrompt != null &&
       biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
-    ) {
+
+  LaunchedEffect(currentUserId, userSecret?.uid, biometricPrompt) {
+    if (userSecret != null && userSecret?.blocked != true && !appUnlocked && biometricAvailable) {
       biometricPrompt.authenticate(biometricPromptInfo)
     }
   }
@@ -187,10 +196,12 @@ internal fun AuthenticatedAppFlow(
   if (!appUnlocked) {
     AppUnlockScreen(
       errorMessage = unlockError,
+      biometricAvailable = biometricAvailable,
       onBiometric = {
-        if (biometricPrompt != null) biometricPrompt.authenticate(biometricPromptInfo)
-        else unlockError = "Biometrik perangkat tidak tersedia. Gunakan PIN transaksi."
+        unlockError = null
+        biometricPrompt?.authenticate(biometricPromptInfo)
       },
+      onSignOut = onSignOut,
       onVerifyPin = { pin ->
         viewModel.verifyAppUnlockPin(pin) { error ->
           unlockError = error
@@ -302,7 +313,7 @@ internal fun AuthenticatedAppFlow(
             TransferScreen(
               currentUserId = currentUserId,
               currentUserName = profile?.name ?: "Nasabah ASTERA",
-              currentUserPhone = profile?.phone ?: "-",
+              currentUserAccountNumber = profile?.accountNumber.orEmpty(),
               currentBalance = profile?.balance ?: 0L,
               initialStartWithQr = false,
               searchResults = searchResults,
@@ -314,6 +325,10 @@ internal fun AuthenticatedAppFlow(
                 viewModel.prepareTransfer(recipient, amount, note)
                 navController.navigate(AsteraRoutes.CONFIRM)
               },
+              onContinueExternalTransfer = { type, provider, account, name, amount, note ->
+                viewModel.prepareExternalTransfer(type, provider, account, name, amount, note)
+                navController.navigate(AsteraRoutes.CONFIRM)
+              },
               onBack = { navController.popBackStack() },
             )
           }
@@ -323,7 +338,8 @@ internal fun AuthenticatedAppFlow(
               currentUserId = currentUserId,
               profile = profile,
               onQrUidScanned = { uid, ok, err -> viewModel.selectRecipientByQrUid(uid, ok, err) },
-              onRecipientReady = { navController.navigate(AsteraRoutes.TRANSFER_MANUAL) },
+              // launchSingleTop: scan/NFC bisa terpicu dua kali cepat, jangan tumpuk dua layar Transfer.
+              onRecipientReady = { navController.navigate(AsteraRoutes.TRANSFER_MANUAL) { launchSingleTop = true } },
             )
           }
 

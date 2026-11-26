@@ -87,9 +87,9 @@ fun formatNotificationTime(timestamp: Timestamp?): String {
   }
 }
 
-/** Nomor Dompet ASTERA tersamar, diambil dari 4 digit terakhir nomor HP (contoh: "•••• 4821"). */
-fun maskedWalletNumber(phone: String?): String {
-  val digits = phone.orEmpty().filter { it.isDigit() }
+/** Nomor rekening Dompet ASTERA tersamar, 4 digit terakhir saja (contoh: "•••• 4821"). */
+fun maskedWalletNumber(accountNumber: String?): String {
+  val digits = accountNumber.orEmpty().filter { it.isDigit() }
   return if (digits.length >= 4) "•••• ${digits.takeLast(4)}" else "•••• ----"
 }
 
@@ -120,3 +120,7 @@ fun formatRupiahCompact(amount: Long): String {
     else -> "Rp $amount"
   }
 }
+
+/** Nomor rekening/e-wallet dikelompokkan per 4 digit (contoh: "3067 2519 4800"). */
+fun formatAccountNumber(number: String): String =
+  number.filter { it.isDigit() }.chunked(4).joinToString(" ")

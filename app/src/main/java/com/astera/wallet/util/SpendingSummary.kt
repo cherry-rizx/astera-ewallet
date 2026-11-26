@@ -4,6 +4,10 @@ import com.astera.wallet.model.TransactionRecord
 import java.util.Calendar
 import java.util.Date
 import java.util.TimeZone
+import com.astera.wallet.model.isExternalTransfer
+import com.astera.wallet.model.isIncomingFor
+import com.astera.wallet.model.isOutgoingFor
+import com.astera.wallet.model.isTopUp
 
 /** Total satu bulan. Pengeluaran = transfer keluar; top up dicatat terpisah karena saldo pindah dari bank sendiri. */
 data class MonthlySpending(
@@ -40,9 +44,9 @@ fun buildMonthlySpending(
     val txs = byMonth[key].orEmpty()
     MonthlySpending(
       monthKey = key,
-      outgoing = txs.filter { it.isOutgoingTransfer(currentUserId) }.sumOf { it.amount },
-      incoming = txs.filter { it.type == "transfer" && it.receiverId == currentUserId && it.senderId != currentUserId }.sumOf { it.amount },
-      topUp = txs.filter { it.type == "topup" && it.senderId == currentUserId }.sumOf { it.amount },
+      outgoing = txs.filter { it.isOutgoingFor(currentUserId) }.sumOf { it.amount },
+      incoming = txs.filter { it.isIncomingFor(currentUserId) && !it.isTopUp() }.sumOf { it.amount },
+      topUp = txs.filter { it.isTopUp() && it.senderId == currentUserId }.sumOf { it.amount },
     )
   }
 }
@@ -55,11 +59,13 @@ fun topRecipients(
   limit: Int = 3,
 ): List<RecipientTotal> =
   transactions
-    .filter { it.isOutgoingTransfer(currentUserId) && it.createdAt?.toDate()?.let(::currentMonthKey) == monthKey }
-    .groupBy { it.receiverId }
-    .map { (_, txs) -> RecipientTotal(txs.first().receiverName, txs.sumOf { it.amount }, txs.size) }
+    .filter { it.isOutgoingFor(currentUserId) && it.createdAt?.toDate()?.let(::currentMonthKey) == monthKey }
+    // Penerima ASTERA dikelompokkan per akun; tujuan luar per bank/e-wallet + nomor.
+    .groupBy { if (it.isExternalTransfer()) "${it.destinationProvider}:${it.destinationAccount}" else it.receiverId }
+    .map { (_, txs) ->
+      val first = txs.first()
+      val name = if (first.isExternalTransfer()) "${first.receiverName} (${first.destinationProvider})" else first.receiverName
+      RecipientTotal(name, txs.sumOf { it.amount }, txs.size)
+    }
     .sortedByDescending { it.amount }
     .take(limit)
-
-private fun TransactionRecord.isOutgoingTransfer(uid: String): Boolean =
-  type == "transfer" && senderId == uid && receiverId != uid

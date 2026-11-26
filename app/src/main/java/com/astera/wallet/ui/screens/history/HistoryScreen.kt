@@ -48,6 +48,7 @@ import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.formatDateGroupLabel
 import com.astera.wallet.viewmodel.UiState
+import com.astera.wallet.model.isIncomingFor
 
 enum class HistoryFilter(val label: String) {
   SEMUA("Semua"),
@@ -133,7 +134,7 @@ fun HistoryScreen(
         is UiState.Success -> {
           val filtered =
             transactionsState.data.filter { tx ->
-              val isIncoming = tx.type == "topup" || tx.receiverId == currentUserId
+              val isIncoming = tx.isIncomingFor(currentUserId)
               when (selectedFilter) {
                 HistoryFilter.SEMUA -> true
                 HistoryFilter.MASUK -> isIncoming

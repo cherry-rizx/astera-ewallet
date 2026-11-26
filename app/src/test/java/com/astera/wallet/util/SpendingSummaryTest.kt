@@ -1,6 +1,7 @@
 package com.astera.wallet.util
 
 import com.astera.wallet.model.TransactionRecord
+import com.astera.wallet.model.TransactionTypes
 import com.google.firebase.Timestamp
 import java.util.Calendar
 import java.util.Date
@@ -65,5 +66,28 @@ class SpendingSummaryTest {
     assertEquals(listOf("Sari", "Budi"), top.map { it.name })
     assertEquals(250_000L, top[1].amount)
     assertEquals(2, top[1].count)
+  }
+
+  private fun external(id: String, provider: String, account: String, name: String, amount: Long, date: Date) =
+    TransactionRecord(
+      id = id, senderId = me, receiverId = TransactionTypes.EXTERNAL_RECEIVER_ID, senderName = "S", receiverName = name,
+      type = TransactionTypes.EXTERNAL_TRANSFER, amount = amount, destinationType = "bank",
+      destinationProvider = provider, destinationAccount = account, createdAt = Timestamp(date),
+    )
+
+  @Test
+  fun externalTransfers_countAsOutgoingAndGroupPerDestination() {
+    val now = jakarta(2026, 11, 24)
+    val txs = listOf(
+      tx("1", "transfer", me, "budi", 100_000, jakarta(2026, 11, 2), "Budi"),
+      external("2", "BCA", "306725194800", "Jujiyel", 300_000, jakarta(2026, 11, 3)),
+      external("3", "BCA", "306725194800", "Jujiyel", 200_000, jakarta(2026, 11, 4)),
+      external("4", "GoPay", "081234567890", "Sari", 50_000, jakarta(2026, 11, 5)),
+    )
+    assertEquals(650_000L, buildMonthlySpending(me, txs, now = now).last().outgoing)
+    val top = topRecipients(me, txs, "2026-11")
+    assertEquals("Jujiyel (BCA)", top.first().name)
+    assertEquals(500_000L, top.first().amount)
+    assertEquals(2, top.first().count)
   }
 }

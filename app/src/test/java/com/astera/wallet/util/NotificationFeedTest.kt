@@ -5,6 +5,7 @@ import com.astera.wallet.model.NotificationCategory
 import com.astera.wallet.model.NotificationKind
 import com.astera.wallet.model.SplitDetailItem
 import com.astera.wallet.model.TransactionRecord
+import com.astera.wallet.model.TransactionTypes
 import com.astera.wallet.model.UserSecret
 import com.astera.wallet.service.NotificationSettings
 import com.google.firebase.Timestamp
@@ -57,5 +58,17 @@ class NotificationFeedTest {
     val feed = buildNotificationFeed(me, null, transactions, null, null, NotificationSettings())
     assertEquals(3, countUnreadNotifications(feed, lastSeenMs = 0L))
     assertEquals(1, countUnreadNotifications(feed, lastSeenMs = base + 25 * 60_000L))
+  }
+
+  @Test
+  fun externalTransfer_becomesOutgoingNotificationWithProvider() {
+    val tx = TransactionRecord(
+      id = "ext", senderId = me, receiverId = TransactionTypes.EXTERNAL_RECEIVER_ID, senderName = "Saya",
+      receiverName = "Jujiyel", type = TransactionTypes.EXTERNAL_TRANSFER, amount = 500_000,
+      destinationType = "bank", destinationProvider = "BCA", destinationAccount = "306725194800", createdAt = ts(40),
+    )
+    val item = buildNotificationFeed(me, null, listOf(tx), null, null, NotificationSettings()).first()
+    assertEquals(NotificationKind.TRANSFER_OUT, item.kind)
+    assertEquals("Rp 500.000 ke Jujiyel (BCA)", item.body)
   }
 }

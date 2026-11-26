@@ -16,6 +16,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import com.astera.wallet.util.generateWalletAccountNumber
 
 class AuthService(
   private val db: FirebaseFirestore,
@@ -105,6 +106,7 @@ class AuthService(
     }
 
     val pinHash = PinHasher.hashPin(pin)
+    val accountNumber = generateWalletAccountNumber()
     val userRef = db.collection("users").document(uid)
     val dirRef = db.collection("user_directory").document(uid)
     val secretRef = db.collection("user_secrets").document(uid)
@@ -118,6 +120,7 @@ class AuthService(
         "name" to cleanName,
         "phone" to cleanPhone,
         "email" to email.ifBlank { "$uid@astera.sim" },
+        "accountNumber" to accountNumber,
         "balance" to INITIAL_WALLET_BALANCE,
         "createdAt" to FieldValue.serverTimestamp(),
       )
@@ -126,6 +129,7 @@ class AuthService(
         "uid" to uid,
         "name" to cleanName,
         "phone" to cleanPhone,
+        "accountNumber" to accountNumber,
         "searchable" to true,
       )
     val secretData =
@@ -180,6 +184,7 @@ class AuthService(
           name = cleanName,
           phone = cleanPhone,
           email = email.ifBlank { "$uid@astera.sim" },
+          accountNumber = accountNumber,
           balance = INITIAL_WALLET_BALANCE,
         )
       )

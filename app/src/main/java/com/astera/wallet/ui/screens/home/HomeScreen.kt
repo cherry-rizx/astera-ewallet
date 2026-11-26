@@ -276,7 +276,7 @@ fun HomeScreen(
             color = Color.White,
           )
           WalletCard(
-            phone = profile?.phone,
+            accountNumber = profile?.accountNumber,
             balance = profile?.balance,
             hideBalance = hideBalance,
           )

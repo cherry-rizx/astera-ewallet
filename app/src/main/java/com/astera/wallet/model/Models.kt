@@ -18,6 +18,8 @@ data class UserProfile(
   val name: String = "",
   val phone: String = "",
   val email: String = "",
+  /** Nomor rekening Dompet ASTERA, 12 digit acak (bukan nomor HP). */
+  val accountNumber: String = "",
   val balance: Long = 0L,
   val photoUrl: String? = null,
   @ServerTimestamp val createdAt: Timestamp? = null,
@@ -29,6 +31,7 @@ data class UserDirectoryEntry(
   val uid: String = "",
   val name: String = "",
   val phone: String = "",
+  val accountNumber: String = "",
   val searchable: Boolean = true,
 )
 
@@ -62,6 +65,12 @@ data class TransactionRecord(
   val note: String = "",
   val outOfBudget: Boolean = false,
   val splitDetail: List<SplitDetailItem> = emptyList(),
+  /** Hanya untuk transfer keluar: "bank" atau "ewallet". */
+  val destinationType: String = "",
+  /** Hanya untuk transfer keluar: nama bank / e-wallet tujuan, mis. "BCA". */
+  val destinationProvider: String = "",
+  /** Hanya untuk transfer keluar: nomor rekening / nomor e-wallet tujuan. */
+  val destinationAccount: String = "",
   @ServerTimestamp val createdAt: Timestamp? = null,
 )
 

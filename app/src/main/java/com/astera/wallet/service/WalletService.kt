@@ -13,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import com.astera.wallet.util.generateWalletAccountNumber
 
 class WalletService(private val db: FirebaseFirestore) {
 
@@ -54,12 +55,14 @@ class WalletService(private val db: FirebaseFirestore) {
           .get()
           .await()
       val cleanQuery = query.trim().lowercase()
+      val cleanDigits = cleanQuery.filter { it.isDigit() }
       val entries =
         snapshot.toObjects(UserDirectoryEntry::class.java).filter { entry ->
           entry.uid != excludeUid &&
             (cleanQuery.isEmpty() ||
               entry.name.lowercase().contains(cleanQuery) ||
-              entry.phone.contains(cleanQuery))
+              (cleanDigits.length >= 3 && entry.accountNumber.contains(cleanDigits)) ||
+              (cleanDigits.length >= 3 && entry.phone.contains(cleanDigits)))
         }
       ServiceResult.Success(entries)
     } catch (e: CancellationException) {
@@ -67,6 +70,30 @@ class WalletService(private val db: FirebaseFirestore) {
     } catch (e: Exception) {
       handleFirestoreError(e, OperationType.LIST, path)
       ServiceResult.Error(friendlyFirestoreMessage(e, "Gagal mencari penerima."))
+    }
+  }
+
+  /**
+   * Akun lama (dibuat sebelum ada nomor rekening) diberi nomor rekening acak 12 digit sekali saja.
+   * Tidak melakukan apa pun jika nomor sudah ada.
+   */
+  suspend fun ensureAccountNumber(uid: String): ServiceResult<Unit> {
+    return try {
+      val userRef = db.collection("users").document(uid)
+      val snap = userRef.get().await()
+      if (!snap.exists() || !snap.getString("accountNumber").isNullOrBlank()) return ServiceResult.Success(Unit)
+      val number = generateWalletAccountNumber()
+      db.runBatch { batch ->
+          batch.update(userRef, "accountNumber", number)
+          batch.update(db.collection("user_directory").document(uid), "accountNumber", number)
+        }
+        .await()
+      ServiceResult.Success(Unit)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, "users/$uid")
+      ServiceResult.Error(friendlyFirestoreMessage(e, "Gagal membuat nomor rekening."))
     }
   }
 

@@ -36,6 +36,9 @@ import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.formatRupiah
 import com.astera.wallet.util.formatTimeShort
+import com.astera.wallet.model.isExternalTransfer
+import com.astera.wallet.model.isIncomingFor
+import com.astera.wallet.model.isTopUp
 
 @Composable
 fun TransactionRowCard(
@@ -43,10 +46,11 @@ fun TransactionRowCard(
   currentUserId: String,
   onClick: () -> Unit,
 ) {
-  val isIncoming = tx.type == "topup" || tx.receiverId == currentUserId
+  val isIncoming = tx.isIncomingFor(currentUserId)
   val title =
     when {
-      tx.type == "topup" -> "Top Up Simulasi"
+      tx.isTopUp() -> "Top Up Simulasi"
+      tx.isExternalTransfer() -> "Transfer ke ${tx.destinationProvider} • ${tx.receiverName}"
       isIncoming -> "Transfer dari ${tx.senderName}"
       else -> "Transfer ke ${tx.receiverName}"
     }

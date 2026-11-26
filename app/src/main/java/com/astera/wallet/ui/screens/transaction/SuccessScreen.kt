@@ -46,13 +46,16 @@ import com.astera.wallet.ui.components.AsteraCard
 import com.astera.wallet.ui.components.AsteraOutlinedButton
 import com.astera.wallet.ui.components.AsteraPrimaryButton
 import com.astera.wallet.ui.components.SimulasiBadge
-import com.astera.wallet.ui.theme.AsteraAmber
 import com.astera.wallet.ui.theme.AsteraBrightBlue
+import com.astera.wallet.ui.theme.AsteraGreen
 import com.astera.wallet.ui.theme.AsteraCard
-import com.astera.wallet.ui.theme.AsteraPrimary
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.formatFullTimestamp
 import com.astera.wallet.util.formatRupiah
+import com.astera.wallet.model.DestinationType
+import com.astera.wallet.model.isExternalTransfer
+import com.astera.wallet.model.isTopUp
+import com.astera.wallet.util.formatAccountNumber
 
 @Composable
 fun SuccessScreen(
@@ -94,8 +97,8 @@ fun SuccessScreen(
               .size(96.dp)
               .scale(scale.value)
               .clip(CircleShape)
-              .background(Brush.linearGradient(listOf(AsteraAmber, AsteraPrimary)))
-              .border(3.dp, AsteraAmber.copy(alpha = 0.75f), CircleShape),
+              .background(Brush.linearGradient(listOf(AsteraGreen, Color(0xFF0F766E))))
+              .border(3.dp, AsteraGreen.copy(alpha = 0.75f), CircleShape),
           contentAlignment = Alignment.Center,
         ) {
           Icon(
@@ -109,7 +112,7 @@ fun SuccessScreen(
         Spacer(modifier = Modifier.height(22.dp))
 
         Text(
-          text = if (transaction?.type == "topup") "Top Up Berhasil!" else "Transfer Berhasil!",
+          text = if (transaction?.isTopUp() == true) "Top Up Berhasil!" else "Transfer Berhasil!",
           style = MaterialTheme.typography.headlineMedium,
           color = Color.White,
         )
@@ -117,7 +120,7 @@ fun SuccessScreen(
         Text(
           text = formatRupiah(transaction?.amount ?: 0L),
           style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
-          color = AsteraAmber,
+          color = Color.White,
         )
 
         Spacer(modifier = Modifier.height(22.dp))
@@ -130,18 +133,44 @@ fun SuccessScreen(
               verticalAlignment = Alignment.CenterVertically,
             ) {
               Text(
-                text = if (transaction.type == "topup") "Tujuan" else "Penerima",
+                text =
+                  when {
+                    transaction.isTopUp() -> "Tujuan"
+                    transaction.isExternalTransfer() ->
+                      "${DestinationType.from(transaction.destinationType)?.label ?: "Bank"} tujuan"
+                    else -> "Penerima"
+                  },
                 style = MaterialTheme.typography.bodySmall,
                 color = AsteraTextSecondary,
               )
               SimulasiBadge()
             }
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
-              text = transaction.receiverName,
-              style = MaterialTheme.typography.titleMedium,
-              color = Color.White,
-            )
+            if (transaction.isExternalTransfer()) {
+              // Sesuai desain: nama bank/e-wallet, nomor tujuan, lalu "a.n." pemilik.
+              Text(
+                text = transaction.destinationProvider,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+              )
+              Spacer(modifier = Modifier.height(8.dp))
+              Text(
+                text = formatAccountNumber(transaction.destinationAccount),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
+              )
+              Text(
+                text = "a.n. ${transaction.receiverName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = AsteraTextSecondary,
+              )
+            } else {
+              Text(
+                text = transaction.receiverName,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+              )
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
               text = "ID Transaksi: ${transaction.id}",

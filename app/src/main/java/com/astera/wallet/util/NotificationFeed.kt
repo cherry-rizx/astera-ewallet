@@ -9,6 +9,8 @@ import com.astera.wallet.model.UserProfile
 import com.astera.wallet.model.UserSecret
 import com.astera.wallet.service.NotificationSettings
 import com.google.firebase.Timestamp
+import com.astera.wallet.model.isExternalTransfer
+import com.astera.wallet.model.isTopUp
 
 /**
  * Menyusun daftar notifikasi di sisi aplikasi dari data Firestore yang sudah dipantau, sehingga
@@ -114,7 +116,17 @@ fun countUnreadNotifications(feed: List<AppNotification>, lastSeenMs: Long): Int
 private fun transactionNotification(currentUserId: String, tx: TransactionRecord): AppNotification {
   val amount = formatRupiah(tx.amount)
   return when {
-    tx.type == "topup" ->
+    tx.isExternalTransfer() ->
+      AppNotification(
+        id = "tx_${tx.id}",
+        category = NotificationCategory.TRANSAKSI,
+        kind = NotificationKind.TRANSFER_OUT,
+        title = "Transfer Berhasil",
+        body = "$amount ke ${tx.receiverName} (${tx.destinationProvider})",
+        timestamp = tx.createdAt,
+        transactionId = tx.id,
+      )
+    tx.isTopUp() ->
       AppNotification(
         id = "tx_${tx.id}",
         category = NotificationCategory.TRANSAKSI,

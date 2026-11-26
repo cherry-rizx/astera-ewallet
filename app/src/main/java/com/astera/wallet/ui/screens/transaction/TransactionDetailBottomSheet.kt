@@ -27,6 +27,10 @@ import com.astera.wallet.ui.theme.AsteraCard
 import com.astera.wallet.ui.theme.AsteraDivider
 import com.astera.wallet.util.formatFullTimestamp
 import com.astera.wallet.util.formatRupiah
+import com.astera.wallet.model.DestinationType
+import com.astera.wallet.model.isExternalTransfer
+import com.astera.wallet.model.isTopUp
+import com.astera.wallet.util.formatAccountNumber
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,10 +66,22 @@ fun TransactionDetailBottomSheet(
       DetailRow(label = "ID Transaksi", value = transaction.id)
       DetailRow(
         label = "Jenis",
-        value = if (transaction.type == "topup") "Top Up Simulasi" else "Transfer Saldo",
+        value =
+          when {
+            transaction.isTopUp() -> "Top Up Simulasi"
+            transaction.isExternalTransfer() ->
+              "Transfer ke ${DestinationType.from(transaction.destinationType)?.label ?: "Bank"}"
+            else -> "Transfer Saldo ASTERA"
+          },
       )
       DetailRow(label = "Pengirim", value = transaction.senderName)
       DetailRow(label = "Penerima", value = transaction.receiverName)
+      if (transaction.isExternalTransfer()) {
+        DetailRow(
+          label = "Tujuan",
+          value = "${transaction.destinationProvider} • ${formatAccountNumber(transaction.destinationAccount)}",
+        )
+      }
       DetailRow(label = "Nominal", value = formatRupiah(transaction.amount))
       DetailRow(label = "Biaya", value = "Rp 0")
       DetailRow(label = "Waktu", value = formatFullTimestamp(transaction.createdAt))

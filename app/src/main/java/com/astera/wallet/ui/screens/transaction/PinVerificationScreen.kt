@@ -116,6 +116,7 @@ fun PinVerificationScreen(
             val subtitle =
               when (pendingOperation) {
                 is PendingOperation.Transfer -> "${pendingOperation.receiverName} • ASTERA"
+                is PendingOperation.ExternalTransfer -> "${pendingOperation.accountName} • ${pendingOperation.provider}"
                 is PendingOperation.TopUp -> "Top Up Simulasi Multi-Bank"
               }
             Text(

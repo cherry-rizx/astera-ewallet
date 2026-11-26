@@ -37,6 +37,7 @@ import com.astera.wallet.ui.theme.AsteraTextSecondary
 fun CodeBoxes(
   code: String,
   length: Int = 6,
+  masked: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   Row(
@@ -58,7 +59,11 @@ fun CodeBoxes(
       ) {
         Box(contentAlignment = Alignment.Center) {
           Text(
-            text = digit?.toString() ?: "",
+            text = when {
+              digit == null -> ""
+              masked -> "•"
+              else -> digit.toString()
+            },
             style = MaterialTheme.typography.headlineSmall,
             color = Color.White,
           )

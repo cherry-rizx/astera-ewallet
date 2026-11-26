@@ -188,7 +188,7 @@ fun AccountScreen(
       }
 
       // Dompet ASTERA card
-      WalletCard(phone = profile?.phone, balance = profile?.balance, compact = true)
+      WalletCard(accountNumber = profile?.accountNumber, balance = profile?.balance, compact = true)
 
       // Account Menus
       AccountMenuCard(

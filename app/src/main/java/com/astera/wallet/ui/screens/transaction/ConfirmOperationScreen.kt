@@ -55,6 +55,7 @@ import com.astera.wallet.ui.theme.AsteraDivider
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.formatRupiah
 import com.astera.wallet.viewmodel.PendingOperation
+import com.astera.wallet.util.formatAccountNumber
 
 @Composable
 fun ConfirmOperationScreen(
@@ -123,7 +124,33 @@ fun ConfirmOperationScreen(
                       color = Color.White,
                     )
                     Text(
-                      text = pendingOperation.receiverPhone,
+                      text = pendingOperation.receiverAccount,
+                      style = MaterialTheme.typography.bodySmall,
+                      color = AsteraTextSecondary,
+                    )
+                  }
+                  SimulasiBadge()
+                }
+              }
+            }
+            is PendingOperation.ExternalTransfer -> {
+              AsteraCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  UserAvatar(name = pendingOperation.accountName, photoUrl = null, size = 48.dp)
+                  Spacer(modifier = Modifier.width(14.dp))
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = "Penerima • ${pendingOperation.destinationType.label}",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = AsteraTextSecondary,
+                    )
+                    Text(
+                      text = "${pendingOperation.accountName} • ${pendingOperation.provider}",
+                      style = MaterialTheme.typography.titleMedium,
+                      color = Color.White,
+                    )
+                    Text(
+                      text = formatAccountNumber(pendingOperation.accountNumber),
                       style = MaterialTheme.typography.bodySmall,
                       color = AsteraTextSecondary,
                     )
@@ -161,8 +188,14 @@ fun ConfirmOperationScreen(
           AsteraCard {
             DetailRow(label = "Nominal", value = formatRupiah(pendingOperation.amount))
             DetailRow(label = "Biaya", value = "Rp 0")
-            if (pendingOperation is PendingOperation.Transfer && pendingOperation.note.isNotBlank()) {
-              DetailRow(label = "Pesan", value = pendingOperation.note)
+            val note =
+              when (pendingOperation) {
+                is PendingOperation.Transfer -> pendingOperation.note
+                is PendingOperation.ExternalTransfer -> pendingOperation.note
+                is PendingOperation.TopUp -> ""
+              }
+            if (note.isNotBlank()) {
+              DetailRow(label = "Pesan", value = note)
             }
             HorizontalDivider(color = AsteraDivider, modifier = Modifier.padding(vertical = 10.dp))
             Row(

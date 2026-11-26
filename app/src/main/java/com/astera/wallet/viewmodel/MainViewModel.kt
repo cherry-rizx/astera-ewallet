@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astera.wallet.model.AppNotification
 import com.astera.wallet.model.BankAccount
+import com.astera.wallet.model.DestinationType
 import com.astera.wallet.model.MonthlyBudget
 import com.astera.wallet.model.ServiceResult
 import com.astera.wallet.model.SplitDetailItem
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.astera.wallet.util.formatAccountNumber
 
 sealed interface UiState<out T> {
   data object Loading : UiState<Nothing>
@@ -49,7 +51,19 @@ sealed interface PendingOperation {
   data class Transfer(
     val receiverId: String,
     val receiverName: String,
-    val receiverPhone: String,
+    /** Nomor rekening ASTERA penerima yang sudah diformat, untuk ditampilkan. */
+    val receiverAccount: String,
+    override val amount: Long,
+    val note: String,
+    override val outOfBudget: Boolean,
+  ) : PendingOperation
+
+  /** Transfer ke rekening bank / e-wallet lain (simulasi). */
+  data class ExternalTransfer(
+    val destinationType: DestinationType,
+    val provider: String,
+    val accountNumber: String,
+    val accountName: String,
     override val amount: Long,
     val note: String,
     override val outOfBudget: Boolean,
@@ -187,6 +201,7 @@ class MainViewModel(
   init {
     viewModelScope.launch {
       budgetService.ensureCurrentMonthReset(currentUserId)
+      walletService.ensureAccountNumber(currentUserId)
       searchRecipients("")
     }
   }
@@ -242,12 +257,38 @@ class MainViewModel(
       PendingOperation.Transfer(
         receiverId = recipient.uid,
         receiverName = recipient.name,
-        receiverPhone = recipient.phone,
+        receiverAccount = formatAccountNumber(recipient.accountNumber).ifBlank { "Dompet ASTERA" },
         amount = amount,
         note = note.trim(),
         outOfBudget = overBudget,
       )
     _pinState.value = PinSubmissionState.Idle
+  }
+
+  fun prepareExternalTransfer(
+    destinationType: DestinationType,
+    provider: String,
+    accountNumber: String,
+    accountName: String,
+    amount: Long,
+    note: String,
+  ) {
+    _pendingOperation.value =
+      PendingOperation.ExternalTransfer(
+        destinationType = destinationType,
+        provider = provider,
+        accountNumber = accountNumber.filter { it.isDigit() },
+        accountName = accountName.trim(),
+        amount = amount,
+        note = note.trim(),
+        outOfBudget = isOverBudget(amount),
+      )
+    _pinState.value = PinSubmissionState.Idle
+  }
+
+  private fun isOverBudget(amount: Long): Boolean {
+    val budget = (budgetState.value as? UiState.Success)?.data
+    return budget != null && budget.monthlyLimit > 0L && (budget.spentThisMonth + amount > budget.monthlyLimit)
   }
 
   fun prepareTopUp(
@@ -317,6 +358,18 @@ class MainViewModel(
                       senderName = senderName,
                       receiverId = operation.receiverId,
                       receiverName = operation.receiverName,
+                      amount = operation.amount,
+                      note = operation.note,
+                      outOfBudget = operation.outOfBudget,
+                    )
+                  is PendingOperation.ExternalTransfer ->
+                    transactionService.executeExternalTransfer(
+                      senderId = currentUserId,
+                      senderName = senderName,
+                      destinationType = operation.destinationType,
+                      provider = operation.provider,
+                      accountNumber = operation.accountNumber,
+                      accountName = operation.accountName,
                       amount = operation.amount,
                       note = operation.note,
                       outOfBudget = operation.outOfBudget,

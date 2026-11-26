@@ -63,6 +63,7 @@ fun AsteraApp() {
       androidx.compose.runtime.key(uid) {
         AuthenticatedAppFlow(
           currentUserId = uid,
+          skipAppUnlock = authViewModel.isFreshSignIn,
           onSignOut = { authViewModel.signOut() },
         )
       }

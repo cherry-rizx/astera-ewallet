@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.util.formatRupiah
 import com.astera.wallet.util.maskedWalletNumber
+import com.astera.wallet.util.formatAccountNumber
 
 /**
  * Kartu "Dompet ASTERA" sesuai desain: logo, nomor dompet tersamar, dan saldo.
@@ -33,7 +34,7 @@ import com.astera.wallet.util.maskedWalletNumber
  */
 @Composable
 fun WalletCard(
-  phone: String?,
+  accountNumber: String?,
   balance: Long?,
   modifier: Modifier = Modifier,
   compact: Boolean = false,
@@ -72,13 +73,13 @@ fun WalletCard(
           Spacer(modifier = Modifier.height(4.dp))
           if (compact) {
             Text(
-              text = "${maskedWalletNumber(phone)} · $balanceText",
+              text = "${formatAccountNumber(accountNumber.orEmpty()).ifBlank { "Membuat nomor..." }} · $balanceText",
               style = MaterialTheme.typography.bodySmall,
               color = Color.White.copy(alpha = 0.85f),
             )
           } else {
             Text(
-              text = maskedWalletNumber(phone),
+              text = maskedWalletNumber(accountNumber),
               style = MaterialTheme.typography.bodySmall,
               color = Color.White.copy(alpha = 0.75f),
             )

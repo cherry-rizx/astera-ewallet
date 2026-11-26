@@ -1,8 +1,10 @@
 package com.astera.wallet.service
 
 import com.astera.wallet.model.BankAccount
+import com.astera.wallet.model.DestinationType
 import com.astera.wallet.model.ServiceResult
 import com.astera.wallet.model.TransactionRecord
+import com.astera.wallet.model.TransactionTypes
 import com.astera.wallet.util.OperationType
 import com.astera.wallet.util.calculateMultiBankSplit
 import com.astera.wallet.util.currentDayKey
@@ -12,6 +14,7 @@ import com.astera.wallet.util.handleFirestoreError
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.Transaction
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
@@ -62,77 +65,20 @@ class TransactionService(private val db: FirebaseFirestore) {
       return ServiceResult.Error("Tidak dapat mentransfer ke akun sendiri.")
     }
 
-    val senderRef = db.collection("users").document(senderId)
     val receiverRef = db.collection("users").document(receiverId)
-    val budgetRef = db.collection("budgets").document(senderId)
     val dayKeyNow = currentDayKey()
-    val dailyRef = db.collection("daily_transfer_limits").document("${senderId}_$dayKeyNow")
     val txRef = db.collection("transactions").document()
     val monthKeyNow = currentMonthKey()
     val cleanNote = note.trim().take(200)
 
     return try {
       db.runTransaction { transaction ->
-          val senderSnap = transaction.get(senderRef)
-          if (!senderSnap.exists()) {
-            throw IllegalStateException("Profil pengirim tidak ditemukan.")
-          }
-          val senderBalance = senderSnap.getLong("balance") ?: 0L
-          if (senderBalance < amount) {
-            throw IllegalStateException("Saldo dompet tidak mencukupi.")
-          }
-
-          val budgetSnap = transaction.get(budgetRef)
-          val dailySnap = transaction.get(dailyRef)
-          val dailyTransferred = dailySnap.getLong("transferredAmount") ?: 0L
-          if (dailyTransferred + amount > MAX_DAILY_TRANSFER_AMOUNT) {
-            throw IllegalStateException("Batas transfer harian Rp 5.000.000 telah tercapai.")
-          }
-          val prevMonth = budgetSnap.getString("monthKey") ?: ""
-          val prevSpent = if (prevMonth == monthKeyNow) (budgetSnap.getLong("spentThisMonth") ?: 0L) else 0L
-          val monthlyLimit = budgetSnap.getLong("monthlyLimit") ?: AuthService.DEFAULT_MONTHLY_LIMIT
-
-          // All writes strictly after all reads
-          transaction.update(
-            senderRef,
-            mapOf("balance" to senderBalance - amount, "lastTransactionId" to txRef.id),
-          )
+          // Semua read di debitSender dilakukan sebelum write apa pun.
+          debitSender(transaction, senderId, amount, txRef.id, dayKeyNow, monthKeyNow)
           transaction.update(
             receiverRef,
             mapOf("balance" to FieldValue.increment(amount), "lastTransactionId" to txRef.id),
           )
-
-          val dailyData =
-            mapOf(
-              "uid" to senderId,
-              "dayKey" to dayKeyNow,
-              "transferredAmount" to dailyTransferred + amount,
-              "lastTransactionId" to txRef.id,
-              "updatedAt" to FieldValue.serverTimestamp(),
-            )
-          if (dailySnap.exists()) transaction.update(dailyRef, dailyData) else transaction.set(dailyRef, dailyData)
-
-          if (budgetSnap.exists()) {
-            transaction.update(
-              budgetRef,
-              mapOf(
-                "monthKey" to monthKeyNow,
-                "spentThisMonth" to prevSpent + amount,
-                "updatedAt" to FieldValue.serverTimestamp(),
-              ),
-            )
-          } else {
-            transaction.set(
-              budgetRef,
-              mapOf(
-                "uid" to senderId,
-                "monthlyLimit" to monthlyLimit,
-                "monthKey" to monthKeyNow,
-                "spentThisMonth" to amount,
-                "updatedAt" to FieldValue.serverTimestamp(),
-              ),
-            )
-          }
 
           val txPayload =
             mapOf(
@@ -140,7 +86,7 @@ class TransactionService(private val db: FirebaseFirestore) {
               "receiverId" to receiverId,
               "senderName" to senderName,
               "receiverName" to receiverName,
-              "type" to "transfer",
+              "type" to TransactionTypes.TRANSFER,
               "amount" to amount,
               "note" to cleanNote,
               "outOfBudget" to outOfBudget,
@@ -159,7 +105,7 @@ class TransactionService(private val db: FirebaseFirestore) {
           receiverId = receiverId,
           senderName = senderName,
           receiverName = receiverName,
-          type = "transfer",
+          type = TransactionTypes.TRANSFER,
           amount = amount,
           note = cleanNote,
           outOfBudget = outOfBudget,
@@ -286,7 +232,7 @@ class TransactionService(private val db: FirebaseFirestore) {
                 "receiverId" to uid,
                 "senderName" to userName,
                 "receiverName" to "Dompet ASTERA",
-                "type" to "topup",
+                "type" to TransactionTypes.TOPUP,
                 "amount" to amount,
                 "note" to "Top Up Simulasi Multi-Bank",
                 "outOfBudget" to outOfBudget,
@@ -305,7 +251,7 @@ class TransactionService(private val db: FirebaseFirestore) {
           receiverId = uid,
           senderName = userName,
           receiverName = "Dompet ASTERA",
-          type = "topup",
+          type = TransactionTypes.TOPUP,
           amount = amount,
           note = "Top Up Simulasi Multi-Bank",
           outOfBudget = outOfBudget,
@@ -320,6 +266,149 @@ class TransactionService(private val db: FirebaseFirestore) {
     } catch (e: Exception) {
       handleFirestoreError(e, OperationType.WRITE, txRef.path)
       ServiceResult.Error(friendlyFirestoreMessage(e, "Top up gagal diproses. Coba lagi."))
+    }
+  }
+
+  /**
+   * Transfer ke rekening bank / e-wallet lain (simulasi). Saldo dompet pengirim berkurang dan
+   * memakai batas per transaksi, batas harian, serta anggaran yang sama dengan transfer ASTERA.
+   */
+  suspend fun executeExternalTransfer(
+    senderId: String,
+    senderName: String,
+    destinationType: DestinationType,
+    provider: String,
+    accountNumber: String,
+    accountName: String,
+    amount: Long,
+    note: String,
+    outOfBudget: Boolean,
+  ): ServiceResult<TransactionRecord> {
+    if (amount <= 0L) return ServiceResult.Error("Nominal harus lebih dari Rp 0.")
+    if (amount > MAX_TRANSFER_AMOUNT) {
+      return ServiceResult.Error("Batas maksimal per transaksi adalah Rp 5.000.000.")
+    }
+    val cleanAccount = accountNumber.filter { it.isDigit() }
+    if (cleanAccount.length !in 6..20) return ServiceResult.Error("Nomor tujuan tidak valid.")
+    val cleanName = accountName.trim().take(80)
+    if (cleanName.isEmpty()) return ServiceResult.Error("Nama pemilik rekening wajib diisi.")
+
+    val dayKeyNow = currentDayKey()
+    val monthKeyNow = currentMonthKey()
+    val txRef = db.collection("transactions").document()
+    val cleanNote = note.trim().take(200)
+
+    return try {
+      db.runTransaction { transaction ->
+          debitSender(transaction, senderId, amount, txRef.id, dayKeyNow, monthKeyNow)
+          transaction.set(
+            txRef,
+            mapOf(
+              "senderId" to senderId,
+              "receiverId" to TransactionTypes.EXTERNAL_RECEIVER_ID,
+              "senderName" to senderName,
+              "receiverName" to cleanName,
+              "type" to TransactionTypes.EXTERNAL_TRANSFER,
+              "amount" to amount,
+              "note" to cleanNote,
+              "outOfBudget" to outOfBudget,
+              "dayKey" to dayKeyNow,
+              "destinationType" to destinationType.value,
+              "destinationProvider" to provider,
+              "destinationAccount" to cleanAccount,
+              "createdAt" to FieldValue.serverTimestamp(),
+            ),
+          )
+          null
+        }
+        .await()
+
+      ServiceResult.Success(
+        TransactionRecord(
+          id = txRef.id,
+          senderId = senderId,
+          receiverId = TransactionTypes.EXTERNAL_RECEIVER_ID,
+          senderName = senderName,
+          receiverName = cleanName,
+          type = TransactionTypes.EXTERNAL_TRANSFER,
+          amount = amount,
+          note = cleanNote,
+          outOfBudget = outOfBudget,
+          destinationType = destinationType.value,
+          destinationProvider = provider,
+          destinationAccount = cleanAccount,
+          createdAt = Timestamp.now(),
+        )
+      )
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: IllegalStateException) {
+      ServiceResult.Error(e.message ?: "Transfer gagal diproses.")
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.WRITE, txRef.path)
+      ServiceResult.Error(friendlyFirestoreMessage(e, "Transfer gagal diproses. Coba lagi."))
+    }
+  }
+
+  /**
+   * Bagian pengirim dari setiap transfer (di dalam runTransaction): cek saldo dan batas harian,
+   * lalu kurangi saldo, catat batas harian, dan tambah pemakaian anggaran bulan ini.
+   * Melempar IllegalStateException dengan pesan untuk pengguna jika ditolak.
+   */
+  private fun debitSender(
+    transaction: Transaction,
+    senderId: String,
+    amount: Long,
+    txId: String,
+    dayKey: String,
+    monthKey: String,
+  ) {
+    val senderRef = db.collection("users").document(senderId)
+    val budgetRef = db.collection("budgets").document(senderId)
+    val dailyRef = db.collection("daily_transfer_limits").document("${senderId}_$dayKey")
+
+    // Reads
+    val senderSnap = transaction.get(senderRef)
+    if (!senderSnap.exists()) throw IllegalStateException("Profil pengirim tidak ditemukan.")
+    val senderBalance = senderSnap.getLong("balance") ?: 0L
+    if (senderBalance < amount) throw IllegalStateException("Saldo dompet tidak mencukupi.")
+    val budgetSnap = transaction.get(budgetRef)
+    val dailySnap = transaction.get(dailyRef)
+    val dailyTransferred = dailySnap.getLong("transferredAmount") ?: 0L
+    if (dailyTransferred + amount > MAX_DAILY_TRANSFER_AMOUNT) {
+      throw IllegalStateException("Batas transfer harian Rp 5.000.000 telah tercapai.")
+    }
+    val prevMonth = budgetSnap.getString("monthKey") ?: ""
+    val prevSpent = if (prevMonth == monthKey) (budgetSnap.getLong("spentThisMonth") ?: 0L) else 0L
+    val monthlyLimit = budgetSnap.getLong("monthlyLimit") ?: AuthService.DEFAULT_MONTHLY_LIMIT
+
+    // Writes
+    transaction.update(senderRef, mapOf("balance" to senderBalance - amount, "lastTransactionId" to txId))
+    val dailyData =
+      mapOf(
+        "uid" to senderId,
+        "dayKey" to dayKey,
+        "transferredAmount" to dailyTransferred + amount,
+        "lastTransactionId" to txId,
+        "updatedAt" to FieldValue.serverTimestamp(),
+      )
+    if (dailySnap.exists()) transaction.update(dailyRef, dailyData) else transaction.set(dailyRef, dailyData)
+    if (budgetSnap.exists()) {
+      transaction.update(
+        budgetRef,
+        mapOf("monthKey" to monthKey, "spentThisMonth" to prevSpent + amount, "updatedAt" to FieldValue.serverTimestamp()),
+      )
+    } else {
+      transaction.set(
+        budgetRef,
+        mapOf(
+          "uid" to senderId,
+          "monthlyLimit" to monthlyLimit,
+          "monthKey" to monthKey,
+          "spentThisMonth" to amount,
+          "updatedAt" to FieldValue.serverTimestamp(),
+        ),
+      )
     }
   }
 

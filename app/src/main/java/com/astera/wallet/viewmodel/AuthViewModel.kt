@@ -59,6 +59,13 @@ class AuthViewModel(
   private val _otpError = MutableStateFlow<String?>(null)
   val otpError: StateFlow<String?> = _otpError.asStateFlow()
 
+  /**
+   * true jika sesi ini baru saja dibuat lewat login (+OTP) atau registrasi, sehingga layar kunci
+   * PIN/biometrik dilewati. false jika sesi lama dipulihkan saat aplikasi dibuka ulang.
+   */
+  var isFreshSignIn: Boolean = false
+    private set
+
   /** Email tersimpan dari opsi "Ingat saya", atau null. */
   val rememberedEmail: String? = loginPreferences.rememberedEmail()
 
@@ -150,6 +157,7 @@ class AuthViewModel(
         when (res) {
           is ServiceResult.Success -> {
             otpService.clear()
+            isFreshSignIn = true
             _gateState.value = AuthGateState.Authenticated(res.data.uid)
             onSuccess()
           }
@@ -177,6 +185,7 @@ class AuthViewModel(
         otpService.clear()
         _otpChallenge.value = null
         _otpError.value = null
+        isFreshSignIn = true
         _gateState.value = AuthGateState.Authenticated(pending.uid)
       }
       is OtpVerifyResult.Wrong ->
@@ -202,6 +211,7 @@ class AuthViewModel(
   }
 
   fun signOut() {
+    isFreshSignIn = false
     otpService.clear()
     _otpChallenge.value = null
     _otpError.value = null

@@ -5,8 +5,8 @@ import org.junit.Test
 
 class FormattersTest {
   @Test
-  fun maskedWalletNumber_usesLastFourPhoneDigits() {
-    assertEquals("•••• 4821", maskedWalletNumber("0812-3456-4821"))
+  fun maskedWalletNumber_showsLastFourDigits() {
+    assertEquals("•••• 4821", maskedWalletNumber("5839 2071 4821"))
     assertEquals("•••• ----", maskedWalletNumber(null))
   }
 

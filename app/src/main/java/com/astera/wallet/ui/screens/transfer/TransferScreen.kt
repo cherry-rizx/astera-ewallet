@@ -78,13 +78,16 @@ import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.QrUtils
 import com.astera.wallet.util.formatRupiah
 import com.astera.wallet.viewmodel.UiState
+import com.astera.wallet.model.DestinationType
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.astera.wallet.util.formatAccountNumber
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransferScreen(
   currentUserId: String,
   currentUserName: String,
-  currentUserPhone: String,
+  currentUserAccountNumber: String,
   currentBalance: Long,
   initialStartWithQr: Boolean,
   searchResults: UiState<List<UserDirectoryEntry>>,
@@ -93,8 +96,18 @@ fun TransferScreen(
   onSelectRecipient: (UserDirectoryEntry?) -> Unit,
   onQrUidScanned: (String, (UserDirectoryEntry) -> Unit, (String) -> Unit) -> Unit,
   onContinueTransfer: (UserDirectoryEntry, Long, String) -> Unit,
+  onContinueExternalTransfer: (
+    type: DestinationType,
+    provider: String,
+    accountNumber: String,
+    accountName: String,
+    amount: Long,
+    note: String,
+  ) -> Unit,
   onBack: () -> Unit,
 ) {
+  var mode by rememberSaveable { mutableStateOf(TransferMode.ASTERA) }
+  // Di dalam mode ASTERA: 0 = input manual, 1 = scan QR.
   var selectedTab by remember { mutableIntStateOf(if (initialStartWithQr) 1 else 0) }
   var searchQuery by remember { mutableStateOf("") }
   var amountText by remember { mutableStateOf("") }
@@ -130,7 +143,7 @@ fun TransferScreen(
     }
   }
 
-  NfcRecipientReaderEffect(enabled = nfcAvailability == NfcAvailability.READY) { payload ->
+  NfcRecipientReaderEffect(enabled = mode == TransferMode.ASTERA && nfcAvailability == NfcAvailability.READY) { payload ->
     handleRecipientPayload(payload, fromNfc = true)
   }
 
@@ -161,7 +174,7 @@ fun TransferScreen(
         },
       )
 
-      // Segmented Tabs ("Input Manual" default, "Scan QR")
+      // Tab tujuan: sesama ASTERA, rekening bank lain, atau e-wallet lain (desain 06 & 07).
       Surface(
         shape = RoundedCornerShape(14.dp),
         color = AsteraFieldBg,
@@ -169,27 +182,32 @@ fun TransferScreen(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
       ) {
         Row(modifier = Modifier.padding(4.dp)) {
-          TransferTabChip(
-            label = "Input Manual",
-            selected = selectedTab == 0,
-            onClick = { selectedTab = 0 },
-            modifier = Modifier.weight(1f).testTag("tab_input_manual"),
-          )
-          TransferTabChip(
-            label = "Scan QR",
-            selected = selectedTab == 1,
-            onClick = {
-              qrFeedback = null
-              selectedTab = 1
-            },
-            modifier = Modifier.weight(1f).testTag("tab_scan_qr"),
-          )
+          TransferMode.entries.forEach { tab ->
+            TransferTabChip(
+              label = tab.label,
+              selected = mode == tab,
+              onClick = {
+                qrFeedback = null
+                mode = tab
+              },
+              modifier = Modifier.weight(1f).testTag("tab_${tab.name.lowercase()}"),
+            )
+          }
         }
       }
 
       Spacer(modifier = Modifier.height(14.dp))
 
-      if (selectedTab == 0) {
+      if (mode != TransferMode.ASTERA) {
+        val type = if (mode == TransferMode.BANK) DestinationType.BANK else DestinationType.EWALLET
+        ExternalTransferForm(
+          type = type,
+          currentBalance = currentBalance,
+          onContinue = { provider, account, name, amount, note ->
+            onContinueExternalTransfer(type, provider, account, name, amount, note)
+          },
+        )
+      } else if (selectedTab == 0) {
         Column(
           modifier =
             Modifier
@@ -214,7 +232,7 @@ fun TransferScreen(
               onSearchQueryChanged(it)
             },
             label = "Penerima",
-            placeholder = "Nomor HP atau nama",
+            placeholder = "Nama atau nomor rekening ASTERA",
             errorText = recipientError,
             leadingIcon = {
               Icon(Icons.Outlined.Search, contentDescription = null, tint = AsteraSkyBlue)
@@ -299,7 +317,7 @@ fun TransferScreen(
                             color = Color.White,
                           )
                           Text(
-                            text = entry.phone,
+                            text = accountLabel(entry),
                             style = MaterialTheme.typography.bodySmall,
                             color = AsteraTextSecondary,
                           )
@@ -350,10 +368,14 @@ fun TransferScreen(
           )
 
           AsteraOutlinedButton(
-            text = "Tampilkan QR Saya",
-            onClick = { showMyQrSheet = true },
+            text = "Scan QR Penerima",
+            onClick = {
+              qrFeedback = null
+              selectedTab = 1
+            },
             borderColor = AsteraAmber.copy(alpha = 0.7f),
             contentColor = AsteraAmber,
+            modifier = Modifier.testTag("open_qr_scanner_button"),
           )
 
           AsteraPrimaryButton(
@@ -416,7 +438,7 @@ fun TransferScreen(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-          text = "$currentUserName • $currentUserPhone",
+          text = "$currentUserName • ${formatAccountNumber(currentUserAccountNumber)}",
           style = MaterialTheme.typography.bodyMedium,
           color = AsteraTextSecondary,
         )
@@ -469,7 +491,8 @@ private fun TransferTabChip(
     ) {
       Text(
         text = label,
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.labelMedium,
+        maxLines = 1,
         color = if (selected) Color.White else AsteraTextSecondary,
       )
     }
@@ -493,7 +516,7 @@ private fun SelectedRecipientCard(
       Column(modifier = Modifier.weight(1f)) {
         Text("Penerima terpilih", style = MaterialTheme.typography.labelSmall, color = AsteraTextSecondary)
         Text(recipient.name, style = MaterialTheme.typography.titleSmall, color = Color.White)
-        Text(recipient.phone, style = MaterialTheme.typography.bodySmall, color = AsteraTextSecondary)
+        Text(accountLabel(recipient), style = MaterialTheme.typography.bodySmall, color = AsteraTextSecondary)
       }
       TextButton(onClick = onClear, modifier = Modifier.testTag("clear_recipient_button")) {
         Text("Ganti", color = AsteraSkyBlue)
@@ -538,3 +561,14 @@ private fun NfcHintCard(availability: NfcAvailability, feedback: String?) {
     }
   }
 }
+
+/** Tab tujuan transfer. */
+private enum class TransferMode(val label: String) {
+  ASTERA("Sesama ASTERA"),
+  BANK("Ke Bank"),
+  EWALLET("Ke E-Wallet"),
+}
+
+/** "No. Rek 5839 2071 4462", atau keterangan jika akun penerima belum punya nomor rekening. */
+private fun accountLabel(entry: UserDirectoryEntry): String =
+  if (entry.accountNumber.isBlank()) "Dompet ASTERA" else "No. Rek ${formatAccountNumber(entry.accountNumber)}"

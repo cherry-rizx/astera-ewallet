@@ -77,7 +77,12 @@ Nama package Kotlin sama dengan `applicationId`, yaitu `com.astera.wallet`.
 - Verifikasi dua langkah dengan OTP simulasi (kode 6 digit, berlaku 5 menit,
   maksimal 3 percobaan, kirim ulang setelah 30 detik). Tidak ada SMS sungguhan:
   kode muncul sebagai notifikasi lokal dan kartu "SMS Simulasi".
-- Dompet simulasi, transfer pengguna, top up multi-bank, dan riwayat.
+- Dompet simulasi, transfer sesama pengguna ASTERA, top up multi-bank, dan riwayat.
+- Transfer ke rekening bank lain (BCA, Mandiri, BNI, BRI, dll.) dan e-wallet lain
+  (GoPay, OVO, DANA, ShopeePay, LinkAja) sebagai simulasi: saldo dompet berkurang
+  dengan batas dan PIN yang sama, tetapi dana tidak dikirim ke pihak luar.
+- Setelah login/daftar langsung masuk; saat aplikasi dibuka ulang, keypad PIN
+  langsung tampil dengan sidik jari otomatis.
 - QR Astera (tombol QRIS di tengah bottom nav): scan QR, ambil QR dari galeri,
   senter, dan tunjukkan QR milik sendiri.
 - Tap HP via NFC untuk mengisi penerima: HP penerima membuka QRIS > Tunjukkan QR

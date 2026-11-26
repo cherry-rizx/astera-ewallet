@@ -80,7 +80,7 @@ import com.astera.wallet.ui.theme.AsteraPrimary
 import com.astera.wallet.ui.theme.AsteraSkyBlue
 import com.astera.wallet.ui.theme.AsteraTextSecondary
 import com.astera.wallet.util.QrUtils
-import com.astera.wallet.util.maskedWalletNumber
+import com.astera.wallet.util.formatAccountNumber
 
 private enum class QrisTab(val label: String) {
   SCAN("Scan QR"),
@@ -352,7 +352,7 @@ private fun ShowQrContent(
       Spacer(Modifier.height(10.dp))
       Text(name, style = MaterialTheme.typography.titleMedium, color = Color(0xFF101E40))
       Text(
-        "Dompet ASTERA ${maskedWalletNumber(profile?.phone)}",
+        "Dompet ASTERA • ${formatAccountNumber(profile?.accountNumber.orEmpty())}",
         style = MaterialTheme.typography.bodySmall,
         color = Color(0xFF5B6B8C),
       )
